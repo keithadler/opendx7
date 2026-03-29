@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenDX7 - 6-Operator FM Synthesizer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Scrollable rack panel -->
+    <div class="scroll-area">
+      <div class="rack-unit">
+        <!-- Rack ears + top screws -->
+        <div class="rack-ear left"><div class="screw"></div><div class="screw"></div></div>
+        <div class="rack-body">
+
+          <!-- Top strip: logo, patch, transport -->
+          <div class="top-strip">
+            <div class="logo-area">
+              <span class="logo">OPEN<span class="logo-accent">DX7</span></span>
+              <span class="credit">by Keith Adler</span>
+            </div>
+            <div class="patch-area">
+              <select id="patch-select" aria-label="Patch selector"></select>
+              <button id="load-syx-btn" class="rack-btn">LOAD SYX</button>
+              <input type="file" id="syx-file" accept=".syx,.SYX" style="display:none">
+              <button id="panic-btn" class="rack-btn panic">PANIC</button>
+            </div>
+          </div>
+
+          <!-- Main controls row -->
+          <div class="controls-row">
+
+            <!-- Algorithm + Feedback -->
+            <div class="panel algo-panel">
+              <div class="panel-label">ALGORITHM</div>
+              <canvas id="algo-canvas" width="200" height="130"></canvas>
+              <div class="algo-nav">
+                <button class="rack-btn sm" id="algo-dec">◀</button>
+                <span class="lcd" id="algo-num">1</span>
+                <button class="rack-btn sm" id="algo-inc">▶</button>
+              </div>
+              <div class="knob-row">
+                <div class="knob-group">
+                  <canvas class="knob" data-param="feedback" data-min="0" data-max="7" data-target="global" width="48" height="48"></canvas>
+                  <div class="knob-label">FEEDBACK</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Operator selector + envelope + params -->
+            <div class="panel op-panel">
+              <div class="panel-label">OPERATORS</div>
+              <div class="op-tabs" id="op-tabs">
+                <button class="op-tab active" data-op="0">1</button>
+                <button class="op-tab" data-op="1">2</button>
+                <button class="op-tab" data-op="2">3</button>
+                <button class="op-tab" data-op="3">4</button>
+                <button class="op-tab" data-op="4">5</button>
+                <button class="op-tab" data-op="5">6</button>
+              </div>
+              <canvas id="env-canvas" width="360" height="100"></canvas>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="egRate1" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R1</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egRate2" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R2</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egRate3" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R3</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egRate4" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R4</div></div>
+              </div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="egLevel1" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L1</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egLevel2" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L2</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egLevel3" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L3</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="egLevel4" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L4</div></div>
+              </div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="outputLevel" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">LEVEL</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="freqCoarse" data-min="0" data-max="31" data-target="op" width="40" height="40"></canvas><div class="knob-label">COARSE</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="freqFine" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">FINE</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="detune" data-min="0" data-max="14" data-target="op" width="40" height="40"></canvas><div class="knob-label">DETUNE</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="velSensitivity" data-min="0" data-max="7" data-target="op" width="40" height="40"></canvas><div class="knob-label">VEL</div></div>
+              </div>
+            </div>
+
+            <!-- Visualizer -->
+            <div class="panel viz-panel">
+              <div class="panel-label">OUTPUT</div>
+              <canvas id="waveform-canvas" width="220" height="80"></canvas>
+              <canvas id="spectrum-canvas" width="220" height="80"></canvas>
+              <div class="vu-meters">
+                <div class="vu-bar"><div class="vu-fill" id="vu-l"></div></div>
+                <div class="vu-bar"><div class="vu-fill" id="vu-r"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Second row: LFO, Pitch EG, Effects -->
+          <div class="controls-row">
+            <div class="panel lfo-panel">
+              <div class="panel-label">LFO</div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="lfoSpeed" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">SPEED</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="lfoDelay" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">DELAY</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="lfoPitchModDepth" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">PMD</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="lfoAmpModDepth" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">AMD</div></div>
+              </div>
+              <div class="inline-controls">
+                <label>WAVE</label>
+                <select class="rack-select global-param" data-param="lfoWave">
+                  <option value="0">TRI</option><option value="1">SAW↓</option><option value="2">SAW↑</option>
+                  <option value="3">SQR</option><option value="4">SIN</option><option value="5">S&amp;H</option>
+                </select>
+                <label>SYNC</label>
+                <input type="checkbox" class="global-param" data-param="lfoSync">
+                <label>P.SENS</label>
+                <select class="rack-select global-param" data-param="pitchModSens">
+                  <option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="panel pitch-panel">
+              <div class="panel-label">PITCH EG</div>
+              <canvas id="pitch-env-canvas" width="180" height="60"></canvas>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgR1" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R1</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgR2" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R2</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgR3" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R3</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgR4" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R4</div></div>
+              </div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgL1" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L1</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgL2" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L2</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgL3" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L3</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="pitchEgL4" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L4</div></div>
+              </div>
+            </div>
+
+            <div class="panel fx-panel">
+              <div class="panel-label">EFFECTS</div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="reverbMix" data-min="0" data-max="100" data-target="fx" width="44" height="44"></canvas><div class="knob-label">REV MIX</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="reverbDecay" data-min="5" data-max="80" data-target="fx" width="44" height="44"></canvas><div class="knob-label">REV TIME</div></div>
+              </div>
+              <div class="knob-row">
+                <div class="knob-group"><canvas class="knob" data-param="delayMix" data-min="0" data-max="100" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY MIX</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="delayTime" data-min="50" data-max="1000" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY TIME</div></div>
+                <div class="knob-group"><canvas class="knob" data-param="delayFeedback" data-min="0" data-max="85" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY FDBK</div></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="rack-ear right"><div class="screw"></div><div class="screw"></div></div>
+      </div>
+    </div>
+
+    <!-- Keyboard — fixed bottom -->
+    <div class="keyboard-container">
+      <div class="keyboard" id="keyboard"></div>
+    </div>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
