@@ -1,106 +1,72 @@
-// DX7 Algorithm visualization — draws the 32 algorithm diagrams on canvas
+// OpenDX7 — FM Synthesizer (MIT License)
+// Copyright (c) 2026 Keith Adler
+// DX7 Algorithm visualization — high-DPI aware
 
-// Algorithm definitions: each is an array of connections
-// Format: { carriers: [op indices], connections: [[from, to], ...], feedback: opIdx }
-// Operators are numbered 1-6 (display), 0-5 (internal)
 const ALGO_DEFS = [
-  // 1: 6→5→4→3, 2→1, out=[1,3]
-  { ops: [[1,0],[2,1],[3,2],[4,3],[5,4],[6,5]], carriers: [1,3], chains: [[6,5,4,3],[2,1]], fb: 6 },
-  // 2: 6→5→4→3, 2→1, out=[1,3], fb=2
+  { carriers: [1,3], chains: [[6,5,4,3],[2,1]], fb: 6 },
   { carriers: [1,3], chains: [[6,5,4,3],[2,1]], fb: 2 },
-  // 3: 6→5→4, 3→2→1, out=[1,4], fb=6
   { carriers: [1,4], chains: [[6,5,4],[3,2,1]], fb: 6 },
-  // 4: 6→5→4→3→2→1, out=[1], fb=6
   { carriers: [1], chains: [[6,5,4,3,2,1]], fb: 6 },
-  // 5: 6→5, 4→3, 2→1, out=[1,3,5], fb=6
   { carriers: [1,3,5], chains: [[6,5],[4,3],[2,1]], fb: 6 },
-  // 6: 6→5, 4→3, 2→1, out=[1,3,5], fb=6
   { carriers: [1,3,5], chains: [[6,5],[4,3],[2,1]], fb: 6 },
-  // 7: 6→5, 3→(2+4)→1, out=[1], fb=6
-  { carriers: [1], chains: [[6,5,4],[3,2,1]], fb: 6, merge: {1: [2,4]} },
-  // 8: 4→3→2→1, 6→5, out=[1,5], fb=6 (actually fb=4)
-  { carriers: [1,5], chains: [[4,3,2,1],[6,5]], fb: 6 },
-  // 9: 6→5→4, 3→2→1, out=[1], fb=6, merge: {1: [2,4]}
   { carriers: [1], chains: [[6,5,4],[3,2,1]], fb: 6 },
-  // 10: 3→2→1, 6→5→4, out=[1,4], fb=6
+  { carriers: [1,5], chains: [[4,3,2,1],[6,5]], fb: 6 },
+  { carriers: [1], chains: [[6,5,4],[3,2,1]], fb: 6 },
   { carriers: [1,4], chains: [[3,2,1],[6,5,4]], fb: 6 },
-  // 11: 6→5→4, 3→2→1, out=[1,4], fb=6
   { carriers: [1,4], chains: [[6,5,4],[3,2,1]], fb: 6 },
-  // 12: 6→5→4→3, 2→1, out=[1,3], fb=2
   { carriers: [1,3], chains: [[6,5,4,3],[2,1]], fb: 2 },
-  // 13: 6→5→4, 3→2→1, out=[1,4], fb=2
   { carriers: [1,4], chains: [[6,5,4],[3,2,1]], fb: 2 },
-  // 14: 6→5→4→3, 2→1, out=[1], fb=6
   { carriers: [1], chains: [[6,5,4,3,2,1]], fb: 6 },
-  // 15: 6→5→2→1, 4→3, out=[1,3], fb=6
   { carriers: [1,3], chains: [[6,5,2,1],[4,3]], fb: 6 },
-  // 16: 6→5→(3+4)→2→1, out=[1], fb=6
   { carriers: [1], chains: [[6,5,4,3,2,1]], fb: 6 },
-  // 17: 6→(5+4)→3→2→1, out=[1], fb=1
   { carriers: [1], chains: [[6,5,4,3,2,1]], fb: 1 },
-  // 18: 6→5, 6→4, 3→2→1, out=[1,4,5], fb=6
   { carriers: [1,4,5], chains: [[3,2,1],[6,5],[6,4]], fb: 6 },
-  // 19: 6→5, 6→4→3, 2→1, out=[1,3,5], fb=6
   { carriers: [1,3,5], chains: [[2,1],[6,5],[6,4,3]], fb: 6 },
-  // 20: 3→2→1, 5→4, 6, out=[1,4,6], fb=3
   { carriers: [1,4,6], chains: [[3,2,1],[5,4],[6]], fb: 3 },
-  // 21: 3→2→1, 5→4, 6, out=[1,4,6], fb=6
   { carriers: [1,4,6], chains: [[3,2,1],[5,4],[6]], fb: 6 },
-  // 22: 6→5, 4→3, 2→1, out=[1,3,5], fb=6
   { carriers: [1,3,5], chains: [[6,5],[4,3],[2,1]], fb: 6 },
-  // 23: 6→5, 6→4, 3, 2→1, out=[1,3,4,5], fb=6
   { carriers: [1,3,4,5], chains: [[6,5],[6,4],[3],[2,1]], fb: 6 },
-  // 24: 6→5, 6→4, 6→3, 2→1, out=[1,3,4,5], fb=6
   { carriers: [1,3,4,5], chains: [[6,5],[6,4],[6,3],[2,1]], fb: 6 },
-  // 25: 6→5, 4, 3, 2→1, out=[1,3,4,5], fb=6
   { carriers: [1,3,4,5], chains: [[6,5],[4],[3],[2,1]], fb: 6 },
-  // 26: 6→5, 3→2, 4, 1, out=[1,2,4,5], fb=6
   { carriers: [1,2,4,5], chains: [[6,5],[3,2],[4],[1]], fb: 6 },
-  // 27: 3→2, 6→5, 4, 1, out=[1,2,4,5], fb=6
   { carriers: [1,2,4,5], chains: [[3,2],[6,5],[4],[1]], fb: 6 },
-  // 28: 6→5→4, 3, 2→1, out=[1,3,4], fb=6
   { carriers: [1,3,4], chains: [[6,5,4],[3],[2,1]], fb: 6 },
-  // 29: 6→5, 4→3, 2, 1, out=[1,2,3,5], fb=6
   { carriers: [1,2,3,5], chains: [[6,5],[4,3],[2],[1]], fb: 6 },
-  // 30: 6→5→4, 3, 2, 1, out=[1,2,3,4], fb=6
   { carriers: [1,2,3,4], chains: [[6,5,4],[3],[2],[1]], fb: 6 },
-  // 31: 6→5, 4, 3, 2, 1, out=[1,2,3,4,5], fb=6
   { carriers: [1,2,3,4,5], chains: [[6,5],[4],[3],[2],[1]], fb: 6 },
-  // 32: all carriers, out=[1,2,3,4,5,6], fb=6
   { carriers: [1,2,3,4,5,6], chains: [[6],[5],[4],[3],[2],[1]], fb: 6 },
 ];
 
 export function drawAlgorithm(canvas, algoIndex) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width || 200;
+  const h = rect.height || 80;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
+  ctx.scale(dpr, dpr);
 
+  ctx.clearRect(0, 0, w, h);
   const algo = ALGO_DEFS[algoIndex];
   if (!algo) return;
 
-  const boxW = 32;
-  const boxH = 22;
-  const gapX = 8;
-  const gapY = 8;
+  const boxW = Math.min(28, w / 8);
+  const boxH = Math.min(18, h / 5);
+  const gapX = boxW * 0.3;
+  const gapY = boxH * 0.35;
 
-  // Position operators based on chains
-  const positions = {};
   const chains = algo.chains;
   const numChains = chains.length;
+  let maxLen = 0;
+  for (const c of chains) maxLen = Math.max(maxLen, c.length);
 
-  // Layout: chains side by side, operators top to bottom within each chain
-  const totalWidth = numChains * (boxW + gapX) - gapX;
-  const startX = (w - totalWidth) / 2;
+  const totalW = numChains * (boxW + gapX) - gapX;
+  const totalH = maxLen * (boxH + gapY) - gapY;
+  const startX = (w - totalW) / 2;
+  const startY = (h - totalH - 14) / 2;
 
-  let maxChainLen = 0;
-  for (const chain of chains) {
-    maxChainLen = Math.max(maxChainLen, chain.length);
-  }
-
-  const totalHeight = maxChainLen * (boxH + gapY) - gapY;
-  const startY = (h - totalHeight) / 2 - 5;
-
+  const positions = {};
   for (let ci = 0; ci < chains.length; ci++) {
     const chain = chains[ci];
     const x = startX + ci * (boxW + gapX);
@@ -113,9 +79,9 @@ export function drawAlgorithm(canvas, algoIndex) {
     }
   }
 
-  // Draw connections
-  ctx.strokeStyle = '#555';
-  ctx.lineWidth = 2;
+  // Connections
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1.5;
   for (const chain of chains) {
     for (let i = 0; i < chain.length - 1; i++) {
       const from = positions[chain[i]];
@@ -129,87 +95,83 @@ export function drawAlgorithm(canvas, algoIndex) {
     }
   }
 
-  // Draw feedback loop
+  // Feedback arc
   if (algo.fb) {
-    const fbPos = positions[algo.fb];
-    if (fbPos) {
-      ctx.strokeStyle = '#888';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
+    const p = positions[algo.fb];
+    if (p) {
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
       ctx.beginPath();
-      ctx.arc(fbPos.x + boxW / 2 + 4, fbPos.y, 10, -Math.PI * 0.7, Math.PI * 0.7);
+      ctx.arc(p.x + boxW / 2 + 3, p.y, 7, -Math.PI * 0.7, Math.PI * 0.7);
       ctx.stroke();
       ctx.setLineDash([]);
     }
   }
 
-  // Draw operator boxes
-  for (let opNum = 1; opNum <= 6; opNum++) {
-    const pos = positions[opNum];
-    if (!pos) continue;
+  // Operator boxes
+  for (let op = 1; op <= 6; op++) {
+    const p = positions[op];
+    if (!p) continue;
+    const isCar = algo.carriers.includes(op);
 
-    const isCarrier = algo.carriers.includes(opNum);
-
-    // Box
-    ctx.fillStyle = isCarrier ? '#333' : '#1a1a1a';
-    ctx.strokeStyle = isCarrier ? '#fff' : '#666';
-    ctx.lineWidth = isCarrier ? 2 : 1.5;
+    ctx.fillStyle = isCar ? '#1a2a3a' : '#151515';
+    ctx.strokeStyle = isCar ? '#4af' : '#444';
+    ctx.lineWidth = isCar ? 1.5 : 1;
     ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(pos.x - boxW / 2, pos.y - boxH / 2, boxW, boxH, 4);
-    } else {
-      ctx.rect(pos.x - boxW / 2, pos.y - boxH / 2, boxW, boxH);
-    }
+    const r = 3;
+    const x = p.x - boxW / 2, y = p.y - boxH / 2;
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + boxW - r, y); ctx.arcTo(x + boxW, y, x + boxW, y + r, r);
+    ctx.lineTo(x + boxW, y + boxH - r); ctx.arcTo(x + boxW, y + boxH, x + boxW - r, y + boxH, r);
+    ctx.lineTo(x + r, y + boxH); ctx.arcTo(x, y + boxH, x, y + boxH - r, r);
+    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Label
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = isCar ? '#fff' : '#888';
+    ctx.font = `bold ${Math.round(boxH * 0.55)}px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(opNum.toString(), pos.x, pos.y);
-  }
-
-  // Draw output line
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
-  const outY = startY + (maxChainLen - 1) * (boxH + gapY) + boxH / 2 + 10;
-  for (const cNum of algo.carriers) {
-    const pos = positions[cNum];
-    if (pos) {
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y + boxH / 2);
-      ctx.lineTo(pos.x, outY);
-      ctx.stroke();
-    }
+    ctx.fillText(op.toString(), p.x, p.y);
   }
 
   // Output bar
-  if (algo.carriers.length > 0) {
-    const xs = algo.carriers.map(c => positions[c]?.x).filter(Boolean);
-    if (xs.length > 0) {
-      const minX = Math.min(...xs) - 5;
-      const maxX = Math.max(...xs) + 5;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 3;
+  const outY = startY + (maxLen - 1) * (boxH + gapY) + boxH / 2 + gapY + 2;
+  for (const c of algo.carriers) {
+    const p = positions[c];
+    if (p) {
+      ctx.strokeStyle = '#4af';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(minX, outY);
-      ctx.lineTo(maxX, outY);
+      ctx.moveTo(p.x, p.y + boxH / 2);
+      ctx.lineTo(p.x, outY);
       ctx.stroke();
-
-      // Arrow down
-      const midX = (minX + maxX) / 2;
-      ctx.beginPath();
-      ctx.moveTo(midX, outY);
-      ctx.lineTo(midX, outY + 12);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(midX - 4, outY + 8);
-      ctx.lineTo(midX, outY + 14);
-      ctx.lineTo(midX + 4, outY + 8);
-      ctx.fillStyle = '#fff';
-      ctx.fill();
     }
+  }
+
+  const xs = algo.carriers.map(c => positions[c]?.x).filter(Boolean);
+  if (xs.length > 0) {
+    const minX = Math.min(...xs) - 4;
+    const maxX = Math.max(...xs) + 4;
+    ctx.strokeStyle = '#4af';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(minX, outY);
+    ctx.lineTo(maxX, outY);
+    ctx.stroke();
+
+    const midX = (minX + maxX) / 2;
+    ctx.beginPath();
+    ctx.moveTo(midX, outY);
+    ctx.lineTo(midX, outY + 8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(midX - 3, outY + 5);
+    ctx.lineTo(midX, outY + 10);
+    ctx.lineTo(midX + 3, outY + 5);
+    ctx.fillStyle = '#4af';
+    ctx.fill();
   }
 }
