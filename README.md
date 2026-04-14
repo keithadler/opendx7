@@ -1,5 +1,7 @@
 # OpenDX7
 
+**Version 0.2**
+
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
 Built with the Web Audio API. Verified against the [Dexed/msfa](https://github.com/asb2m10/dexed) open-source DX7 engine for accuracy.
@@ -83,6 +85,21 @@ node test/e2e-test.js           # 28 end-to-end tests
 - [Dexed](https://github.com/asb2m10/dexed) — open-source DX7 plugin (Apache 2.0)
 - [Ken Shirriff's DX7 reverse engineering](https://www.righto.com/2021/11/reverse-engineering-yamaha-dx7.html)
 - [ajxs DX7 technical analysis](https://ajxs.me/blog/Yamaha_DX7_Technical_Analysis.html)
+
+## Changelog
+
+#### Version 0.2
+- Fixed LFO running 64x too slow (advanced per-sample instead of per-block)
+- Fixed output scaling to match Dexed's >>4 normalization — eliminates clipping on multi-carrier patches
+- Fixed effects chain: reverb/delay isolated through master bus with brick-wall limiter
+- Delay feedback clamped to prevent runaway
+- Default patch set to Elec Piano 1 on startup
+- Next chord suggestions stay visible until new chord played
+
+**Known issue:** Playback does not yet fully match the sound of a real DX7 or Dexed. The FM synthesis math and operator routing are verified correct against Dexed's source, but the overall timbre — particularly on patches with high feedback or complex modulation chains — can sound harsher than expected. This is under active investigation.
+
+#### Version 0.1
+- Initial release
 
 ## Donation
 

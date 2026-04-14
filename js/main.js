@@ -125,7 +125,7 @@ async function ensureAudio() {
 
   // Dry path
   dryGain = audioCtx.createGain();
-  dryGain.gain.value = 0.9;
+  dryGain.gain.value = 1.0;
   dx7Node.connect(dryGain);
   dryGain.connect(masterBus);
 
@@ -317,10 +317,10 @@ function loadPatch(i) {
     if (delayGain) delayGain.gain.setValueAtTime(0, audioCtx.currentTime);
     if (delayFbNode) delayFbNode.gain.setValueAtTime(0, audioCtx.currentTime);
     setTimeout(() => {
-      if (dryGain) dryGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+      if (dryGain) dryGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
       if (reverbGain) reverbGain.gain.setValueAtTime(fxState.reverbMix / 100, audioCtx.currentTime);
       if (delayGain) delayGain.gain.setValueAtTime(fxState.delayMix / 100, audioCtx.currentTime);
-      if (delayFbNode) delayFbNode.gain.setValueAtTime(fxState.delayFeedback / 100, audioCtx.currentTime);
+      if (delayFbNode) delayFbNode.gain.setValueAtTime(Math.min(0.85, fxState.delayFeedback / 100), audioCtx.currentTime);
     }, 50);
   }
   // Reset operator mutes
@@ -985,10 +985,10 @@ function setup() {
 
     // Restore after a brief silence to flush all buffers
     setTimeout(() => {
-      if (dryGain) dryGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+      if (dryGain) dryGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
       if (reverbGain) reverbGain.gain.setValueAtTime(fxState.reverbMix / 100, audioCtx.currentTime);
       if (delayGain) delayGain.gain.setValueAtTime(fxState.delayMix / 100, audioCtx.currentTime);
-      if (delayFbNode) delayFbNode.gain.setValueAtTime(fxState.delayFeedback / 100, audioCtx.currentTime);
+      if (delayFbNode) delayFbNode.gain.setValueAtTime(Math.min(0.85, fxState.delayFeedback / 100), audioCtx.currentTime);
     }, 200);
   });
 
