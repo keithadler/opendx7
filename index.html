@@ -1,165 +1,261 @@
 <!DOCTYPE html>
+<!-- OpenDX7 — FM Synthesizer (MIT License) -->
+<!-- Copyright (c) 2026 Keith Adler -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenDX7 - 6-Operator FM Synthesizer</title>
+  <title>OpenDX7 — FM Synthesizer</title>
+  <script src="https://g200kg.github.io/webaudio-controls/webaudio-controls.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div id="app">
-    <!-- Scrollable rack panel -->
-    <div class="scroll-area">
-      <div class="rack-unit">
-        <!-- Rack ears + top screws -->
-        <div class="rack-ear left"><div class="screw"></div><div class="screw"></div></div>
-        <div class="rack-body">
 
-          <!-- Top strip: logo, patch, transport -->
-          <div class="top-strip">
-            <div class="logo-area">
-              <span class="logo">OPEN<span class="logo-accent">DX7</span></span>
-              <span class="credit">by Keith Adler</span>
-            </div>
-            <div class="patch-area">
-              <select id="patch-select" aria-label="Patch selector"></select>
-              <button id="load-syx-btn" class="rack-btn">LOAD SYX</button>
-              <input type="file" id="syx-file" accept=".syx,.SYX" style="display:none">
-              <button id="panic-btn" class="rack-btn panic">PANIC</button>
-            </div>
-          </div>
-
-          <!-- Main controls row -->
-          <div class="controls-row">
-
-            <!-- Algorithm + Feedback -->
-            <div class="panel algo-panel">
-              <div class="panel-label">ALGORITHM</div>
-              <canvas id="algo-canvas" width="200" height="130"></canvas>
-              <div class="algo-nav">
-                <button class="rack-btn sm" id="algo-dec">◀</button>
-                <span class="lcd" id="algo-num">1</span>
-                <button class="rack-btn sm" id="algo-inc">▶</button>
-              </div>
-              <div class="knob-row">
-                <div class="knob-group">
-                  <canvas class="knob" data-param="feedback" data-min="0" data-max="7" data-target="global" width="48" height="48"></canvas>
-                  <div class="knob-label">FEEDBACK</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Operator selector + envelope + params -->
-            <div class="panel op-panel">
-              <div class="panel-label">OPERATORS</div>
-              <div class="op-tabs" id="op-tabs">
-                <button class="op-tab active" data-op="0">1</button>
-                <button class="op-tab" data-op="1">2</button>
-                <button class="op-tab" data-op="2">3</button>
-                <button class="op-tab" data-op="3">4</button>
-                <button class="op-tab" data-op="4">5</button>
-                <button class="op-tab" data-op="5">6</button>
-              </div>
-              <canvas id="env-canvas" width="360" height="100"></canvas>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="egRate1" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R1</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egRate2" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R2</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egRate3" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R3</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egRate4" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">R4</div></div>
-              </div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="egLevel1" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L1</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egLevel2" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L2</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egLevel3" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L3</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="egLevel4" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">L4</div></div>
-              </div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="outputLevel" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">LEVEL</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="freqCoarse" data-min="0" data-max="31" data-target="op" width="40" height="40"></canvas><div class="knob-label">COARSE</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="freqFine" data-min="0" data-max="99" data-target="op" width="40" height="40"></canvas><div class="knob-label">FINE</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="detune" data-min="0" data-max="14" data-target="op" width="40" height="40"></canvas><div class="knob-label">DETUNE</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="velSensitivity" data-min="0" data-max="7" data-target="op" width="40" height="40"></canvas><div class="knob-label">VEL</div></div>
-              </div>
-            </div>
-
-            <!-- Visualizer -->
-            <div class="panel viz-panel">
-              <div class="panel-label">OUTPUT</div>
-              <canvas id="waveform-canvas" width="220" height="80"></canvas>
-              <canvas id="spectrum-canvas" width="220" height="80"></canvas>
-              <div class="vu-meters">
-                <div class="vu-bar"><div class="vu-fill" id="vu-l"></div></div>
-                <div class="vu-bar"><div class="vu-fill" id="vu-r"></div></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Second row: LFO, Pitch EG, Effects -->
-          <div class="controls-row">
-            <div class="panel lfo-panel">
-              <div class="panel-label">LFO</div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="lfoSpeed" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">SPEED</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="lfoDelay" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">DELAY</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="lfoPitchModDepth" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">PMD</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="lfoAmpModDepth" data-min="0" data-max="99" data-target="global" width="40" height="40"></canvas><div class="knob-label">AMD</div></div>
-              </div>
-              <div class="inline-controls">
-                <label>WAVE</label>
-                <select class="rack-select global-param" data-param="lfoWave">
-                  <option value="0">TRI</option><option value="1">SAW↓</option><option value="2">SAW↑</option>
-                  <option value="3">SQR</option><option value="4">SIN</option><option value="5">S&amp;H</option>
-                </select>
-                <label>SYNC</label>
-                <input type="checkbox" class="global-param" data-param="lfoSync">
-                <label>P.SENS</label>
-                <select class="rack-select global-param" data-param="pitchModSens">
-                  <option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                  <option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="panel pitch-panel">
-              <div class="panel-label">PITCH EG</div>
-              <canvas id="pitch-env-canvas" width="180" height="60"></canvas>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgR1" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R1</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgR2" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R2</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgR3" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R3</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgR4" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">R4</div></div>
-              </div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgL1" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L1</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgL2" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L2</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgL3" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L3</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="pitchEgL4" data-min="0" data-max="99" data-target="global" width="36" height="36"></canvas><div class="knob-label">L4</div></div>
-              </div>
-            </div>
-
-            <div class="panel fx-panel">
-              <div class="panel-label">EFFECTS</div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="reverbMix" data-min="0" data-max="100" data-target="fx" width="44" height="44"></canvas><div class="knob-label">REV MIX</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="reverbDecay" data-min="5" data-max="80" data-target="fx" width="44" height="44"></canvas><div class="knob-label">REV TIME</div></div>
-              </div>
-              <div class="knob-row">
-                <div class="knob-group"><canvas class="knob" data-param="delayMix" data-min="0" data-max="100" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY MIX</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="delayTime" data-min="50" data-max="1000" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY TIME</div></div>
-                <div class="knob-group"><canvas class="knob" data-param="delayFeedback" data-min="0" data-max="85" data-target="fx" width="44" height="44"></canvas><div class="knob-label">DLY FDBK</div></div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-        <div class="rack-ear right"><div class="screw"></div><div class="screw"></div></div>
+    <div class="header-bar">
+      <div class="brand">Open<span>DX7</span></div>
+      <div class="patch-controls">
+        <button id="patch-prev" class="patch-nav" title="Previous sound">◀</button>
+        <select id="patch-select"></select>
+        <button id="patch-next" class="patch-nav" title="Next sound">▶</button>
+        <button id="load-syx-btn">LOAD SYX</button>
+        <input type="file" id="syx-file" accept=".syx,.SYX" hidden>
+        <button id="save-patch-btn" title="Save current patch">SAVE</button>
+        <input type="text" id="voice-name" class="voice-name" maxlength="10" value="" placeholder="Voice Name" title="Edit voice name">
+        <select id="demo-select" class="demo-select">
+          <option value="">▶ Demo</option>
+          <option value="midi/minute_waltz.mid">Minute Waltz</option>
+          <option value="midi/bluebossa.mid">Blue Bossa</option>
+          <option value="midi/sowhat.mid">So What</option>
+        </select>
+        <button id="panic-btn" class="panic">PANIC</button>
       </div>
+      <div class="credit">by Keith Adler</div>
     </div>
 
-    <!-- Keyboard — fixed bottom -->
-    <div class="keyboard-container">
-      <div class="keyboard" id="keyboard"></div>
+    <div class="scroll-area">
+
+      <!-- Row 1: Algorithm + Operator -->
+      <div class="panels">
+        <div class="panel compact">
+          <div class="panel-title">Algorithm</div>
+          <div class="algo-row">
+            <button class="nav-btn" id="algo-dec">◀</button>
+            <div class="lcd" id="algo-num">1</div>
+            <button class="nav-btn" id="algo-inc">▶</button>
+          </div>
+          <canvas id="algo-canvas" width="200" height="80"></canvas>
+          <div class="param-row">
+            <div class="param">
+              <div class="knob" id="feedback" data-min="0" data-max="7" data-value="0" data-color="#4af" data-size="42"></div>
+              <div class="param-label">Feedback</div>
+            </div>
+            <div class="param">
+              <div class="knob global-knob" data-param="transpose" data-min="0" data-max="48" data-value="24" data-color="#888" data-size="36"></div>
+              <div class="param-label">Transpose</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel wide compact">
+          <div class="panel-title">
+            Operator
+            <div class="op-tabs">
+              <button class="op-tab active" data-op="0" title="Click=select, Shift+Click=mute">1</button>
+              <button class="op-tab" data-op="1">2</button>
+              <button class="op-tab" data-op="2">3</button>
+              <button class="op-tab" data-op="3">4</button>
+              <button class="op-tab" data-op="4">5</button>
+              <button class="op-tab" data-op="5">6</button>
+            </div>
+          </div>
+
+          <div class="op-layout">
+
+            <div class="op-group op-level-group">
+              <div class="param">
+                <div class="knob op-knob" data-param="outputLevel" data-min="0" data-max="99" data-value="0" data-color="#4f4" data-size="42"></div>
+                <div class="param-label">Output Level</div>
+              </div>
+              <div class="op-mode-row">
+                <button class="mode-btn" id="osc-mode-btn" title="Toggle Ratio/Fixed">RATIO</button>
+              </div>
+            </div>
+
+            <div class="op-group op-env-group">
+              <div class="group-label">Envelope</div>
+              <canvas id="env-canvas" width="280" height="48"></canvas>
+              <div class="param-row">
+                <div class="param"><div class="knob op-knob" data-param="egRate1" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">Attack</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egRate2" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">Decay</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egRate3" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">Sustain</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egRate4" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">Release</div></div>
+              </div>
+              <div class="param-row">
+                <div class="param"><div class="knob op-knob" data-param="egLevel1" data-min="0" data-max="99" data-value="99" data-color="#f84" data-size="42"></div><div class="param-label">L1</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egLevel2" data-min="0" data-max="99" data-value="99" data-color="#f84" data-size="42"></div><div class="param-label">L2</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egLevel3" data-min="0" data-max="99" data-value="99" data-color="#f84" data-size="42"></div><div class="param-label">L3</div></div>
+                <div class="param"><div class="knob op-knob" data-param="egLevel4" data-min="0" data-max="99" data-value="0" data-color="#f84" data-size="42"></div><div class="param-label">L4</div></div>
+              </div>
+            </div>
+
+            <div class="op-group op-freq-group">
+              <div class="group-label">Frequency</div>
+              <div class="param-row">
+                <div class="param"><div class="knob op-knob" data-param="freqCoarse" data-min="0" data-max="31" data-value="1" data-color="#aaa" data-size="42"></div><div class="param-label" id="freq-coarse-label">Ratio</div></div>
+                <div class="param"><div class="knob op-knob" data-param="freqFine" data-min="0" data-max="99" data-value="0" data-color="#aaa" data-size="42"></div><div class="param-label">Fine</div></div>
+                <div class="param"><div class="knob op-knob" data-param="detune" data-min="0" data-max="14" data-value="7" data-color="#aaa" data-size="42"></div><div class="param-label">Detune</div></div>
+              </div>
+              <div class="group-label">Sensitivity</div>
+              <div class="param-row">
+                <div class="param"><div class="knob op-knob" data-param="velSensitivity" data-min="0" data-max="7" data-value="0" data-color="#888" data-size="42"></div><div class="param-label">Velocity</div></div>
+                <div class="param"><div class="knob op-knob" data-param="ampModSens" data-min="0" data-max="3" data-value="0" data-color="#888" data-size="42"></div><div class="param-label">Amp Mod</div></div>
+                <div class="param"><div class="knob op-knob" data-param="kbdRateScaling" data-min="0" data-max="7" data-value="0" data-color="#888" data-size="42"></div><div class="param-label">Key Rate</div></div>
+              </div>
+              <div class="group-label">Key Scaling</div>
+              <div class="param-row">
+                <div class="param"><div class="knob op-knob" data-param="kbdLevelScaleBP" data-min="0" data-max="99" data-value="39" data-color="#666" data-size="36"></div><div class="param-label">Break Pt</div></div>
+                <div class="param"><div class="knob op-knob" data-param="kbdLevelScaleLD" data-min="0" data-max="99" data-value="0" data-color="#666" data-size="36"></div><div class="param-label">L Depth</div></div>
+                <div class="param"><div class="knob op-knob" data-param="kbdLevelScaleRD" data-min="0" data-max="99" data-value="0" data-color="#666" data-size="36"></div><div class="param-label">R Depth</div></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: Output, Harmony, LFO, Pitch Env, Effects -->
+      <div class="panels">
+        <div class="panel fx-custom compact">
+          <div class="panel-title">Output</div>
+          <canvas id="waveform-canvas" width="220" height="50"></canvas>
+          <div class="output-stats">
+            <div class="stat-row">
+              <span class="stat-label">PEAK</span>
+              <div class="stat-meter"><div class="stat-fill peak-fill" id="peak-fill"></div></div>
+              <span class="stat-val" id="peak-db">-∞ dB</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">RMS</span>
+              <div class="stat-meter"><div class="stat-fill rms-fill" id="rms-fill"></div></div>
+              <span class="stat-val" id="rms-db">-∞ dB</span>
+            </div>
+          </div>
+          <div class="voice-row">
+            <span class="stat-label">VOICES</span>
+            <div class="voice-dots" id="voice-dots"></div>
+          </div>
+        </div>
+
+        <div class="panel chord-panel compact">
+          <div class="panel-title">Detected</div>
+          <div class="detect-row">
+            <span class="detect-label">CHORD</span>
+            <span class="detect-value" id="chord-display">—</span>
+          </div>
+          <div class="detect-row">
+            <span class="detect-label">KEY</span>
+            <span class="detect-value" id="key-value">—</span>
+          </div>
+          <div class="detect-row next-row">
+            <span class="detect-label">NEXT</span>
+            <span class="detect-next" id="next-chords">—</span>
+          </div>
+        </div>
+
+        <div class="panel compact">
+          <div class="panel-title">LFO</div>
+          <div class="param-row">
+            <div class="param"><div class="knob global-knob" data-param="lfoSpeed" data-min="0" data-max="99" data-value="0" data-color="#4af" data-size="48"></div><div class="param-label">Speed</div></div>
+            <div class="param"><div class="knob global-knob" data-param="lfoDelay" data-min="0" data-max="99" data-value="0" data-color="#4af" data-size="48"></div><div class="param-label">Delay</div></div>
+          </div>
+          <div class="param-row">
+            <div class="param"><div class="knob global-knob" data-param="lfoPitchModDepth" data-min="0" data-max="99" data-value="0" data-color="#f84" data-size="48"></div><div class="param-label">Pitch Depth</div></div>
+            <div class="param"><div class="knob global-knob" data-param="lfoAmpModDepth" data-min="0" data-max="99" data-value="0" data-color="#f84" data-size="48"></div><div class="param-label">Amp Depth</div></div>
+          </div>
+          <div class="param-row">
+            <div class="param">
+              <select class="sel global-sel" data-param="lfoWave">
+                <option value="0">Triangle</option><option value="1">Saw ↓</option><option value="2">Saw ↑</option>
+                <option value="3">Square</option><option value="4">Sine</option><option value="5">S&amp;H</option>
+              </select>
+              <div class="param-label">Wave</div>
+            </div>
+            <div class="param"><div class="knob global-knob" data-param="pitchModSens" data-min="0" data-max="7" data-value="0" data-color="#888" data-size="42"></div><div class="param-label">Pitch Sens</div></div>
+            <div class="param"><button class="mode-btn" id="lfo-sync-btn" title="LFO key sync">SYNC</button></div>
+          </div>
+        </div>
+
+        <div class="panel compact">
+          <div class="panel-title">Pitch Envelope</div>
+          <canvas id="pitch-env-canvas" width="240" height="50"></canvas>
+          <div class="param-row">
+            <div class="param"><div class="knob global-knob" data-param="pitchEgR1" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">R1</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgR2" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">R2</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgR3" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">R3</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgR4" data-min="0" data-max="99" data-value="99" data-color="#4af" data-size="42"></div><div class="param-label">R4</div></div>
+          </div>
+          <div class="param-row">
+            <div class="param"><div class="knob global-knob" data-param="pitchEgL1" data-min="0" data-max="99" data-value="50" data-color="#f84" data-size="42"></div><div class="param-label">L1</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgL2" data-min="0" data-max="99" data-value="50" data-color="#f84" data-size="42"></div><div class="param-label">L2</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgL3" data-min="0" data-max="99" data-value="50" data-color="#f84" data-size="42"></div><div class="param-label">L3</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchEgL4" data-min="0" data-max="99" data-value="50" data-color="#f84" data-size="42"></div><div class="param-label">L4</div></div>
+          </div>
+        </div>
+
+        <div class="panel compact">
+          <div class="panel-title">Performance</div>
+          <div class="param-row">
+            <div class="param"><div class="knob global-knob" data-param="portamentoTime" data-min="0" data-max="99" data-value="0" data-color="#888" data-size="36"></div><div class="param-label">Porta</div></div>
+            <div class="param"><div class="knob global-knob" data-param="pitchBendRange" data-min="0" data-max="12" data-value="2" data-color="#888" data-size="36"></div><div class="param-label">PB Range</div></div>
+          </div>
+          <div class="param-row">
+            <button class="mode-btn" id="poly-mode-btn" title="Poly/Mono">POLY</button>
+          </div>
+        </div>
+
+        <div class="panel fx-custom compact">
+          <div class="panel-title">Effects</div>
+          <select id="fx-preset" class="fx-select">
+            <option value="dry">Dry (No Effects)</option>
+            <option value="small-room">Small Room</option>
+            <option value="studio" selected>Studio</option>
+            <option value="concert-hall">Concert Hall</option>
+            <option value="cathedral">Cathedral</option>
+            <option value="plate">Plate Reverb</option>
+            <option value="slapback">Slapback Echo</option>
+            <option value="tape-delay">Tape Delay</option>
+            <option value="ping-pong">Ping Pong Delay</option>
+            <option value="ambient">Ambient Wash</option>
+            <option value="80s-shimmer">80s Shimmer</option>
+            <option value="spring">Spring Reverb</option>
+          </select>
+          <div class="fx-desc" id="fx-desc">Balanced reverb + subtle delay. Good for everything.</div>
+        </div>
+      </div>
+
     </div>
+
+    <div class="keyboard-dock" id="keyboard-dock">
+      <div class="perf-strip">
+        <div class="wheel-group">
+          <div class="wheel-label">BEND</div>
+          <div class="wheel-track" id="pitch-bend-track">
+            <div class="wheel-center-mark"></div>
+            <div class="wheel-thumb" id="pitch-bend-thumb"></div>
+          </div>
+        </div>
+        <div class="wheel-group">
+          <div class="wheel-label">MOD</div>
+          <div class="wheel-track mod-track" id="mod-wheel-track">
+            <div class="wheel-thumb" id="mod-wheel-thumb" style="bottom:0"></div>
+          </div>
+        </div>
+      </div>
+      <webaudio-keyboard id="keyboard" keys="61" min="36" height="200"
+        colors="#222;#f8f8f8;#ddd;#333;#111;#6af;#48d;#46a;#238"></webaudio-keyboard>
+    </div>
+
   </div>
   <script type="module" src="js/main.js"></script>
 </body>

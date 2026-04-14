@@ -1,17 +1,18 @@
-// DX7 AudioWorklet Processor — accurate FM synthesis engine
-// Based on reverse-engineering of the YM21280 (OPS) and YM21290 (EGS) chips.
-// References: Ken Shirriff's die analysis, msfa/Dexed engine, cross-verified measurements.
+// OpenDX7 — FM Synthesizer (MIT License)
+// Copyright (c) 2026 Keith Adler
+// DX7 AudioWorklet Processor — FM synthesis engine
+// Based on the YM21280 (OPS) and YM21290 (EGS) chip architecture.
+// References: Ken Shirriff's die analysis, msfa/Dexed, cross-verified measurements.
+//
+// KEY ARCHITECTURE: Everything operates in the log domain until the final
+// sin() lookup. Output level, envelope, velocity, and keyboard scaling are
+// all combined as log-domain additions, then converted to linear amplitude.
+// This is how the real chip works and is critical for correct FM timbres.
 
 const TWO_PI = 2 * Math.PI;
 const MAX_POLYPHONY = 16;
 
-// ============================================================
-// FIX #6: DX7 uses a 10-bit phase (1024 entries) with log-sine lookup.
-// We use a 4096-entry table for smoother interpolation but apply the
-// same log-domain computation approach. The real chip computes
-// -log2(|sin(x)|) in a ROM, then converts back. We approximate this
-// with a high-res table but keep the phase modulation math identical.
-// ============================================================
+// ── Sine table ──
 const SINE_TABLE_SIZE = 4096;
 const sineTable = new Float64Array(SINE_TABLE_SIZE);
 for (let i = 0; i < SINE_TABLE_SIZE; i++) {
@@ -26,313 +27,308 @@ function sineLookup(phase) {
   return sineTable[i0 & (SINE_TABLE_SIZE - 1)] * (1 - frac) + sineTable[i1] * frac;
 }
 
-// ============================================================
-// FIX #3: Accurate DX7 output level to linear amplitude.
-// The real DX7 uses a 12-bit TL (total level) value internally.
-// Level 99 = 0dB (max), level 0 = silence.
-// The mapping is NOT a clean exponential. Levels below ~20 are
-// essentially silent. The curve is derived from the OPS chip's
-// log-to-linear conversion table.
-// Based on Dexed/msfa: each level step ≈ 0.75 dB but with a
-// specific lookup that compresses the bottom end.
-// ============================================================
-const LEVEL_TO_AMP = new Float64Array(100);
-(function buildLevelTable() {
-  // DX7 TL mapping: level 99 = 0 TL (loudest), level 0 = 127 TL (silent)
-  // TL to amplitude: amp = 2^(-TL/8) where TL is in 0.75dB steps
-  // The mapping from DX7 level (0-99) to internal TL:
-  for (let i = 0; i < 100; i++) {
-    if (i === 0) {
-      LEVEL_TO_AMP[i] = 0;
-    } else if (i < 20) {
-      // Bottom levels: rapid falloff to silence
-      // Real DX7 has these essentially inaudible
-      const tl = 99 + (20 - i) * 3.2;
-      LEVEL_TO_AMP[i] = Math.pow(2, -tl / 8.0);
-    } else {
-      // Main range: 0.75 dB per step
-      const db = -(99 - i) * 0.75;
-      LEVEL_TO_AMP[i] = Math.pow(10, db / 20.0);
-    }
-  }
-  LEVEL_TO_AMP[99] = 1.0;
-})();
+// ── Log domain constants ──
+// The DX7 EGS uses a 14-bit log level internally.
+// We model the DX7's internal level system.
+// In Dexed/msfa, the output level goes through scaleoutlevel(), gets shifted
+// left by 5, velocity is added, then combined with the envelope level.
+// The final gain is Exp2::lookup(combinedLevel - 14*(1<<24)).
+//
+// We simplify this to a floating-point model that produces the same curve:
+// - Output level 0-99 → a "total level" value
+// - Envelope produces a level 0-1 (1=max)
+// - Combined in log domain, converted to linear amplitude
+//
+// The key insight from Dexed: at output level 99 with envelope at max,
+// the operator produces a gain of ~128 (in their fixed-point system).
+// At level 50, gain is ~1.8. At level 0, gain is ~0.
+// This exponential curve is critical for correct FM modulation depth.
 
-function dx7LevelToAmp(level) {
-  if (level <= 0) return 0;
-  if (level >= 99) return 1.0;
-  return LEVEL_TO_AMP[level];
+// Dexed's scaleoutlevel lookup for levels 0-19
+const SCALE_OUT_LEVEL_LUT = [0,5,9,13,17,20,23,25,27,29,31,33,35,37,39,41,42,43,45,46];
+
+function scaleOutLevel(level) {
+  if (level >= 20) return 28 + level;
+  return SCALE_OUT_LEVEL_LUT[level];
 }
 
-// ============================================================
-// FIX #2: Accurate DX7 envelope rate table.
-// Based on the EGS chip reverse-engineering (msfa/Dexed).
-// The EGS uses a 2-bit "shift" and 2-bit "increment" derived
-// from the rate value. The effective rate of change depends on
-// both the rate parameter and the current level (higher levels
-// change faster in the log domain).
-// We precompute the increment per sample for each rate value.
-// The real chip runs at ~49096 Hz; we normalize to any sample rate.
-// ============================================================
-const ENV_RATE_RISE = new Float64Array(100);
-const ENV_RATE_FALL = new Float64Array(100);
-(function buildRateTables() {
-  // From Dexed/msfa: rate to qrate mapping
-  // qrate = min(63, (rate * 41) >> 6) for the internal 6-bit rate
-  // Then shift = qrate >> 2, increment = (4 + (qrate & 3))
-  // Effective speed = increment << shift, applied per EGS tick (~49096 Hz)
-  // The EGS internal level is 0-4095 (12-bit log domain)
-  const EGS_RATE = 49096; // DX7 internal sample rate
-  for (let r = 0; r < 100; r++) {
-    const qr = Math.min(63, (r * 41 + 32) >> 6);
-    const shift = qr >> 2;
-    const inc = 4 + (qr & 3);
-    // Increment per EGS tick in the 12-bit log domain (0-4095)
-    const logInc = inc << shift;
-    // Convert to linear-domain rate of change per second
-    // 4095 log units = full range (0 to 1 in linear)
-    // But the relationship is logarithmic: linear = 2^(-logLevel/512)
-    // We approximate: the rate in linear domain varies with level.
-    // For simplicity matching Dexed: use a normalized rate.
-    // Rise (attack) is ~2x faster than fall (decay) on real hardware.
-    const baseRate = (logInc / 4096.0) * EGS_RATE;
-    ENV_RATE_RISE[r] = baseRate * 2.0;
-    ENV_RATE_FALL[r] = baseRate;
-  }
-  // Rate 0 should be essentially stopped
-  ENV_RATE_RISE[0] = 0.00001;
-  ENV_RATE_FALL[0] = 0.00001;
-})();
+// Convert DX7 output level (0-99) to the internal "outlevel" value
+// matching Dexed: scaleoutlevel(level) << 5, range 0-4064
+function outputLevelToOutlevel(level) {
+  return scaleOutLevel(Math.min(99, Math.max(0, level))) << 5;
+}
 
-// ============================================================
-// FIX #1: Envelope operates in log domain.
-// The real DX7 EGS operates on a 12-bit logarithmic level (0-4095).
-// Level 0 = maximum amplitude, level 4095 = silence.
-// Transitions are linear in this log domain, which produces
-// exponential curves in the linear (audio) domain.
-// We store the envelope level in log domain (0-4095) and convert
-// to linear only at output time.
-// ============================================================
+// The envelope operates on a 0-4095 log scale internally.
+// Level 0 = max amplitude, 4095 = silence.
 const ENV_MAX_LEVEL = 4095;
 
-// Convert DX7 parameter level (0-99) to internal log level (0-4095)
-// Level 99 = loudest = log level 0
-// Level 0 = silent = log level 4095
-function dx7LevelToLog(level) {
-  if (level >= 99) return 0;
-  if (level <= 0) return ENV_MAX_LEVEL;
-  // Each DX7 level step ≈ 41.36 log units (4095 / 99)
-  return Math.round((99 - level) * (ENV_MAX_LEVEL / 99.0));
+// Convert DX7 envelope parameter level (0-99) to internal target level
+// Matching Dexed: actuallevel = (scaleoutlevel(egLevel) >> 1) << 6
+// This gives a range of 0-4032 for the envelope component
+function envParamToTarget(egLevel) {
+  return (scaleOutLevel(egLevel) >> 1) << 6;
 }
 
-// Convert internal log level to linear amplitude (0-1)
-function logLevelToLinear(logLevel) {
-  if (logLevel >= ENV_MAX_LEVEL) return 0;
-  if (logLevel <= 0) return 1.0;
-  // DX7: amplitude = 2^(-logLevel / 512)
-  // At logLevel 0: amp = 1.0
-  // At logLevel 4095: amp = 2^(-8) ≈ 0.0039 (but we treat as 0)
-  return Math.pow(2, -logLevel / 512.0);
+// Combined level to linear amplitude.
+// In Dexed, the final gain = Exp2(combinedLevel - 14*(1<<24))
+// where combinedLevel = (envTarget + outlevel - 4256) << 16
+// We replicate this curve in floating point.
+// The combinedLevel ranges from ~16 (quietest) to ~3840 (loudest).
+// gain ∝ 2^(combinedLevel / 256)
+// At combinedLevel 3840: gain = 2^15 = 32768 → after >>24 and sin, ≈ ±128
+// At combinedLevel 0: gain ≈ 1 → after >>24, ≈ 0.00006
+function combinedLevelToAmp(combinedLevel) {
+  if (combinedLevel <= 16) return 0;
+  // Dexed: gain = Exp2((combined<<16) - 14*(1<<24))
+  // At max (combined=3840): expArg = 16777216 = 1<<24
+  // Exp2(1<<24) = 2^1.0 * (1<<30) = 1<<31
+  // output = sin(1<<24) * (1<<31) >> 24 = 1<<31
+  // As fraction of 2^32 (full cycle): (1<<31)/(1<<32) = 0.5 cycles = π radians
+  // So our float output at max should be ±0.5
+  const exp = (combinedLevel - 3840) / 256.0;
+  if (exp < -30) return 0;
+  return 0.5 * Math.pow(2, exp);
 }
 
+// ── Velocity scaling ──
+// Dexed's velocity_data lookup and ScaleVelocity function.
+// Returns a TL offset (added to outlevel). Negative = louder.
+const VELOCITY_DATA = [
+  0,70,86,97,106,114,121,126,132,138,142,148,152,156,160,163,
+  166,170,173,174,178,181,184,186,189,190,194,196,198,200,202,
+  205,206,209,211,214,216,218,220,222,224,225,227,229,230,232,
+  233,235,237,238,240,241,242,243,244,246,246,248,249,250,251,
+  252,253,254
+];
+
+function scaleVelocity(velocity, sensitivity) {
+  const clamped = Math.max(0, Math.min(127, velocity));
+  const velValue = VELOCITY_DATA[clamped >> 1] - 239;
+  return ((sensitivity * velValue + 7) >> 3) << 4;
+}
+
+// ── Envelope rate tables ──
+// Ported from Dexed's env.cc: qrate = min(63, (rate*41)>>6 + rateScaling)
+// inc = (4 + (qr&3)) << (2 + LG_N + (qr>>2))  where LG_N=6
+// inc is applied per 64-sample block at 44100 Hz to a level in <<16 format.
+// We convert to "log units per sample at any sample rate".
+const ENV_RATE_TABLE = new Float64Array(100);
+(function() {
+  const LG_N = 6;
+  const BLOCK_SIZE = 1 << LG_N; // 64
+  const NATIVE_SR = 44100;
+  for (let r = 0; r < 100; r++) {
+    const qrate = Math.min(63, (r * 41) >> 6);
+    const inc = (4 + (qrate & 3)) << (2 + LG_N + (qrate >> 2));
+    // inc is in <<16 level units per block of 64 samples at 44100 Hz
+    // Convert to level units (not <<16) per sample:
+    // inc_per_sample = inc / 65536 / 64 (at 44100 Hz)
+    // But we need it normalized so we can divide by actual sampleRate later.
+    // Store as: level_units_per_second = inc / 65536 * (44100 / 64)
+    ENV_RATE_TABLE[r] = (inc / 65536) * (NATIVE_SR / BLOCK_SIZE);
+  }
+})();
+
+// Returns envelope increment in level units per sample
+function envRatePerSample(rate, rateScaling, sampleRate) {
+  const adjRate = Math.min(99, Math.max(0, rate));
+  const qrate = Math.min(63, ((adjRate * 41) >> 6) + rateScaling);
+  const LG_N = 6;
+  const inc = (4 + (qrate & 3)) << (2 + LG_N + (qrate >> 2));
+  // inc is per-block (64 samples) in <<16 format at 44100 Hz
+  // Convert: inc / 65536 / 64 * (44100 / sampleRate)
+  return (inc / 65536 / 64) * (44100 / sampleRate);
+}
+
+// ── DX7 parameter level (0-99) to envelope target ──
+// Dexed: actuallevel = (scaleoutlevel(egLevel) >> 1) << 6
+// This is NOT a linear mapping — it uses the scaleoutlevel lookup.
+function egLevelToTarget(level) {
+  return (scaleOutLevel(Math.min(99, Math.max(0, level))) >> 1) << 6;
+}
+
+// ── Envelope ──
+// Exact port of Dexed's env.cc. Works in native <<16 integer format.
+// Returns the raw Dexed level (int32, <<16 format) for use in gain computation.
 class DX7Envelope {
   constructor() {
     this.stage = 0;
-    this.logLevel = ENV_MAX_LEVEL; // Start silent
-    this.targetLogLevel = ENV_MAX_LEVEL;
-    this.rising = false;
-    this.rates = [0, 0, 0, 0];
-    this.levels = [0, 0, 0, 0]; // DX7 param levels (0-99)
-    this.rateScaleOffset = 0;
-    this.down = false;
+    this.level_ = 0;         // Dexed's level_ (int32, <<16 format)
+    this.targetlevel_ = 0;
+    this.rising_ = false;
+    this.inc_ = 0;
+    this.rates_ = [0, 0, 0, 0];
+    this.levels_ = [0, 0, 0, 0];
+    this.outlevel_ = 0;
+    this.rate_scaling_ = 0;
+    this.down_ = true;
     this.active = false;
+    this.sr_mul = 1.0;       // sample rate correction factor
   }
 
   setParams(r1, r2, r3, r4, l1, l2, l3, l4) {
-    this.rates[0] = r1; this.rates[1] = r2;
-    this.rates[2] = r3; this.rates[3] = r4;
-    this.levels[0] = l1; this.levels[1] = l2;
-    this.levels[2] = l3; this.levels[3] = l4;
+    this.rates_[0] = r1; this.rates_[1] = r2;
+    this.rates_[2] = r3; this.rates_[3] = r4;
+    this.levels_[0] = l1; this.levels_[1] = l2;
+    this.levels_[2] = l3; this.levels_[3] = l4;
   }
 
-  noteOn(rateScaleOffset) {
-    this.rateScaleOffset = rateScaleOffset;
-    this.stage = 0;
+  init(outlevel, rateScaling, sampleRate) {
+    this.outlevel_ = outlevel;
+    this.rate_scaling_ = rateScaling;
+    this.sr_mul = 44100 / sampleRate;
+    this.level_ = 0;
+    this.down_ = true;
     this.active = true;
-    this.down = false;
-    // Don't reset logLevel — start from current position (re-trigger behavior)
-    this._advanceStage();
+    this._advance(0);
   }
 
-  noteOff() {
-    this.down = true;
-    this.stage = 3;
-    this._advanceStage();
-  }
-
-  _advanceStage() {
-    if (this.stage >= 4) {
-      this.active = false;
-      return;
+  keydown(d) {
+    if (this.down_ !== d) {
+      this.down_ = d;
+      this._advance(d ? 0 : 3);
     }
-    this.targetLogLevel = dx7LevelToLog(this.levels[this.stage]);
-    this.rising = this.targetLogLevel < this.logLevel; // Lower log = louder
   }
 
-  process(sampleRate) {
-    if (!this.active) return 0;
+  _advance(ix) {
+    this.stage = ix;
+    if (ix >= 4) return;
+    const nl = this.levels_[ix];
+    let al = scaleOutLevel(nl) >> 1;
+    al = (al << 6) + this.outlevel_ - 4256;
+    al = Math.max(16, al);
+    this.targetlevel_ = al << 16;
+    this.rising_ = this.targetlevel_ > this.level_;
+    let qr = Math.min(63, ((this.rates_[ix] * 41) >> 6) + this.rate_scaling_);
+    this.inc_ = (4 + (qr & 3)) << (2 + 6 + (qr >> 2));
+    this.inc_ = Math.round(this.inc_ * this.sr_mul);
+  }
 
-    const rawRate = Math.min(99, Math.max(0,
-      this.rates[this.stage] + this.rateScaleOffset));
-
-    // Use rise or fall rate depending on direction
-    const ratePerSec = this.rising ? ENV_RATE_RISE[rawRate] : ENV_RATE_FALL[rawRate];
-    const step = ratePerSec / sampleRate;
-    // Step is in normalized units (0-1 of full range), convert to log units
-    const logStep = step * ENV_MAX_LEVEL;
-
-    let reached = false;
-
-    if (this.rising) {
-      // Going louder: logLevel decreasing
-      this.logLevel -= logStep;
-      if (this.logLevel <= this.targetLogLevel) {
-        this.logLevel = this.targetLogLevel;
-        reached = true;
-      }
-    } else {
-      // Going quieter: logLevel increasing
-      this.logLevel += logStep;
-      if (this.logLevel >= this.targetLogLevel) {
-        this.logLevel = this.targetLogLevel;
-        reached = true;
-      }
-    }
-
-    if (reached) {
-      if (this.stage < 2) {
-        this.stage++;
-        this._advanceStage();
-      } else if (this.stage === 2) {
-        // Sustain — hold at L3 until noteOff
-      } else if (this.stage === 3) {
-        this.stage = 4;
-        if (this.logLevel >= ENV_MAX_LEVEL - 10) {
-          this.active = false;
+  // Returns Dexed's raw level_ (int32, <<16 format)
+  // Called once per 64-sample block, matching Dexed's getsample()
+  getsample() {
+    if (this.stage < 3 || (this.stage < 4 && !this.down_)) {
+      if (this.rising_) {
+        const jumptarget = 1716 << 16;
+        if (this.level_ < jumptarget) this.level_ = jumptarget;
+        this.level_ += Math.floor(((17 << 24) - this.level_) / (1 << 24)) * this.inc_;
+        if (this.level_ >= this.targetlevel_) {
+          this.level_ = this.targetlevel_;
+          this._advance(this.stage + 1);
+        }
+      } else {
+        this.level_ -= this.inc_;
+        if (this.level_ <= this.targetlevel_) {
+          this.level_ = this.targetlevel_;
+          this._advance(this.stage + 1);
         }
       }
     }
+    return this.level_;
+  }
 
-    // Clamp
-    this.logLevel = Math.max(0, Math.min(ENV_MAX_LEVEL, this.logLevel));
-
-    return logLevelToLinear(this.logLevel);
+  isActive() {
+    return this.active && (this.stage < 4 || this.levels_[3] > 0);
   }
 }
 
-// ============================================================
-// Pitch Envelope (unchanged structure, uses same rate tables)
-// ============================================================
+// ── Pitch Envelope ──
+// Now uses the same qrate formula as the amplitude envelope for accurate rates.
 class DX7PitchEnvelope {
   constructor() {
-    this.stage = 0;
-    this.level = 0;
-    this.targetLevel = 0;
-    this.rates = [0, 0, 0, 0];
-    this.levels = [0, 0, 0, 0];
-    this.down = false;
-    this.active = false;
+    this.stage = 0; this.level_ = 0; this.targetlevel_ = 0;
+    this.rates_ = [0,0,0,0]; this.levels_ = [0,0,0,0];
+    this.down_ = false; this.active = false;
+    this.inc_ = 0; this.rising_ = false; this.sr_mul = 1.0;
   }
-
-  setParams(r1, r2, r3, r4, l1, l2, l3, l4) {
-    this.rates[0] = r1; this.rates[1] = r2;
-    this.rates[2] = r3; this.rates[3] = r4;
-    this.levels[0] = l1; this.levels[1] = l2;
-    this.levels[2] = l3; this.levels[3] = l4;
+  setParams(r1,r2,r3,r4,l1,l2,l3,l4) {
+    this.rates_[0]=r1; this.rates_[1]=r2; this.rates_[2]=r3; this.rates_[3]=r4;
+    this.levels_[0]=l1; this.levels_[1]=l2; this.levels_[2]=l3; this.levels_[3]=l4;
   }
-
-  noteOn() {
-    this.stage = 0;
-    this.active = true;
-    this.down = false;
-    this.level = (this.levels[3] - 50) / 50.0;
-    this._advanceStage();
+  init(sampleRate) {
+    this.sr_mul = 44100 / sampleRate;
+    this.stage = 0; this.active = true; this.down_ = false;
+    // Start from L4 level
+    this.level_ = (this.levels_[3] - 50) << 16;
+    this._advance(0);
   }
-
-  noteOff() {
-    this.down = true;
-    this.stage = 3;
-    this._advanceStage();
+  noteOff() { this.down_ = true; this._advance(3); }
+  _advance(ix) {
+    this.stage = ix;
+    if (ix >= 4) return;
+    this.targetlevel_ = (this.levels_[ix] - 50) << 16;
+    this.rising_ = this.targetlevel_ > this.level_;
+    // Use qrate formula for pitch envelope too
+    let qr = Math.min(63, (this.rates_[ix] * 41) >> 6);
+    this.inc_ = (4 + (qr & 3)) << (2 + 6 + (qr >> 2));
+    this.inc_ = Math.round(this.inc_ * this.sr_mul);
+    // Pitch envelope is slower — scale down
+    this.inc_ = Math.max(1, this.inc_ >> 4);
   }
-
-  _advanceStage() {
-    if (this.stage >= 4) return;
-    this.targetLevel = (this.levels[this.stage] - 50) / 50.0;
-  }
-
-  process(sampleRate) {
+  // Returns pitch offset in semitones. Called per block (64 samples).
+  getsample() {
     if (!this.active) return 0;
-    const rawRate = Math.min(99, Math.max(0, this.rates[this.stage]));
-    const ratePerSec = ENV_RATE_RISE[rawRate] * 0.5;
-    const step = ratePerSec / sampleRate;
-
-    if (Math.abs(this.level - this.targetLevel) < 0.0005) {
-      this.level = this.targetLevel;
-      if (this.stage < 2 || this.stage === 3) {
-        this.stage++;
-        if (this.stage < 4) this._advanceStage();
+    if (this.rising_) {
+      this.level_ += this.inc_;
+      if (this.level_ >= this.targetlevel_) {
+        this.level_ = this.targetlevel_;
+        if (this.stage < 2 || this.stage === 3) {
+          if (this.stage + 1 < 4) this._advance(this.stage + 1);
+          else this.stage = 4;
+        }
       }
-    } else if (this.level < this.targetLevel) {
-      this.level = Math.min(this.level + step, this.targetLevel);
     } else {
-      this.level = Math.max(this.level - step, this.targetLevel);
+      this.level_ -= this.inc_;
+      if (this.level_ <= this.targetlevel_) {
+        this.level_ = this.targetlevel_;
+        if (this.stage < 2 || this.stage === 3) {
+          if (this.stage + 1 < 4) this._advance(this.stage + 1);
+          else this.stage = 4;
+        }
+      }
     }
-    return this.level * 48; // semitones
+    // Convert: level_ is (param - 50) << 16, range ±50<<16
+    // Map to semitones: ±50 → ±48 semitones (4 octaves)
+    return (this.level_ / (1 << 16)) * (48 / 50);
   }
 }
 
-// ============================================================
-// LFO (same as before — issues 11+ are for later)
-// ============================================================
+// ── LFO ──
+const LFO_SPEED_TABLE = new Float64Array(100);
+(function() {
+  for (let s = 0; s < 100; s++) {
+    if (s < 10) LFO_SPEED_TABLE[s] = 0.062 + s * 0.044;
+    else if (s < 50) LFO_SPEED_TABLE[s] = 0.5 * Math.pow(16, (s - 10) / 40.0);
+    else LFO_SPEED_TABLE[s] = 8.0 * Math.pow(5.95, (s - 50) / 49.0);
+  }
+})();
+
 function lfoWaveform(phase, wave) {
   switch (wave) {
-    case 0: return phase < 0.5 ? 4 * phase - 1 : 3 - 4 * phase; // tri
-    case 1: return 1 - 2 * phase; // saw down
-    case 2: return 2 * phase - 1; // saw up
-    case 3: return phase < 0.5 ? 1 : -1; // square
-    case 4: return sineLookup(phase); // sine
-    case 5: return 0; // S&H handled in class
+    case 0: return phase < 0.5 ? 4*phase-1 : 3-4*phase;
+    case 1: return 1 - 2*phase;
+    case 2: return 2*phase - 1;
+    case 3: return phase < 0.5 ? 1 : -1;
+    case 4: return sineLookup(phase);
+    case 5: return 0;
     default: return 0;
   }
 }
 
-function lfoSpeedToHz(speed) {
-  return 0.062 * Math.pow(768, speed / 99.0);
-}
-
-function lfoDelayToSec(delay) {
-  if (delay === 0) return 0;
-  return 0.008 * Math.pow(500, (99 - delay) / 99.0);
-}
-
-class DX7LFO {
+class DX7GlobalLFO {
   constructor() {
     this.phase = 0; this.freq = 0; this.wave = 0;
     this.delayCounter = 0; this.delayTime = 0;
     this.shValue = 0; this.sync = false;
+    this.pmd = 0; this.amd = 0;
   }
-
-  setParams(speed, delay, wave, sync) {
-    this.freq = lfoSpeedToHz(speed);
+  setParams(speed, delay, wave, sync, pmd, amd) {
+    this.freq = LFO_SPEED_TABLE[Math.min(99, Math.max(0, speed))];
     this.wave = wave; this.sync = sync;
-    this.delayTime = delay > 0 ? lfoDelayToSec(delay) : 0;
+    this.delayTime = delay > 0 ? 0.008 * Math.pow(500, (99 - delay) / 99.0) : 0;
+    this.pmd = pmd; this.amd = amd;
   }
-
-  noteOn() {
-    if (this.sync) this.phase = 0;
-    this.delayCounter = 0;
-  }
-
+  noteOn() { if (this.sync) this.phase = 0; this.delayCounter = 0; }
   process(sampleRate) {
     this.phase += this.freq / sampleRate;
     if (this.phase >= 1.0) {
@@ -345,24 +341,25 @@ class DX7LFO {
       if (this.delayCounter > 1.0) this.delayCounter = 1.0;
       delayMul = this.delayCounter;
     }
-    const val = this.wave === 5 ? this.shValue : lfoWaveform(this.phase, this.wave);
-    return val * delayMul;
+    return (this.wave === 5 ? this.shValue : lfoWaveform(this.phase, this.wave)) * delayMul;
+  }
+  getPitchMod(lfoVal, pitchModSens) {
+    if (this.pmd === 0 || pitchModSens === 0) return 0;
+    const PMS_SEMITONES = [0, 0.6, 1.2, 2.4, 6, 12, 24, 48];
+    return lfoVal * (this.pmd / 99.0) * PMS_SEMITONES[pitchModSens];
+  }
+  // Returns a combined-level reduction for amplitude modulation
+  // Higher value = quieter. Range 0 to ~800.
+  getAmpModReduction(lfoVal, ampModSens) {
+    if (this.amd === 0 || ampModSens === 0) return 0;
+    // AMS depth in combined-level units (roughly matching Dexed's ampmodsenstab)
+    const AMS_DEPTH = [0, 200, 400, 800];
+    const unipolar = (1.0 - lfoVal) * 0.5;
+    return Math.round(unipolar * (this.amd / 99.0) * AMS_DEPTH[ampModSens]);
   }
 }
 
-// ============================================================
-// FIX #7: Fixed frequency mode — logarithmic interpolation.
-// Real DX7: coarse selects decade (1, 10, 100, 1000 Hz),
-// fine (0-99) interpolates logarithmically within the decade.
-// Fine 0 = base freq, fine 99 = base * 10 (next decade).
-// ============================================================
-const FIXED_FREQ_BASE = [1, 10, 100, 1000];
-
-// ============================================================
-// FIX #8: Ratio mode fine frequency.
-// Real DX7: ratio = coarse * (1.0 + fine * 0.01023)
-// Max fine offset is ~1.023%, not 0.99%.
-// ============================================================
+// ── Frequency helpers ──
 const COARSE_RATIO = [
   0.50, 1.00, 2.00, 3.00, 4.00, 5.00, 6.00, 7.00,
   8.00, 9.00, 10.00, 11.00, 12.00, 13.00, 14.00, 15.00,
@@ -370,55 +367,56 @@ const COARSE_RATIO = [
   24.00, 25.00, 26.00, 27.00, 28.00, 29.00, 30.00, 31.00
 ];
 
-function midiToFreq(note) {
-  return 440 * Math.pow(2, (note - 69) / 12.0);
-}
+function midiToFreq(note) { return 440 * Math.pow(2, (note - 69) / 12.0); }
 
-// ============================================================
-// FIX #10: Keyboard rate scaling — direct addition to rate.
-// Real DX7: rateOffset = max(0, (note - 21) >> 2) * rateScaling
-// where rateScaling is 0-7. The offset is added directly to the
-// rate parameter (0-99), clamped to 0-99.
-// ============================================================
+// Dexed's ScaleRate: x = min(31, max(0, midinote/3 - 7))
+// qratedelta = (sensitivity * x) >> 3
 function kbdRateScale(note, rateScaling) {
   if (rateScaling === 0) return 0;
-  // note 21 = A0 is the reference point (offset 0)
-  // Each 4 semitones above adds 1 unit * rateScaling
-  const offset = Math.max(0, (note - 21) >> 2);
-  return offset * rateScaling;
+  const x = Math.min(31, Math.max(0, Math.floor(note / 3) - 7));
+  return (rateScaling * x) >> 3;
 }
 
-// ============================================================
-// Keyboard level scaling (kept from before — issue #11 is later)
-// ============================================================
-function kbdLevelScale(note, breakpoint, leftDepth, rightDepth, leftCurve, rightCurve) {
-  const bp = breakpoint + 21;
-  const diff = note - bp;
-  const depth = diff < 0 ? leftDepth : rightDepth;
-  const curve = diff < 0 ? leftCurve : rightCurve;
-  const absDiff = Math.abs(diff);
-  let scalingDb;
-  switch (curve) {
-    case 0: scalingDb = -absDiff * depth / 45.0; break;
-    case 1: scalingDb = -(1 - Math.exp(-absDiff * 0.07)) * depth * 1.2; break;
-    case 2: scalingDb = (1 - Math.exp(-absDiff * 0.07)) * depth * 1.2; break;
-    case 3: scalingDb = absDiff * depth / 45.0; break;
-    default: scalingDb = 0;
+// ── Keyboard level scaling → outlevel offset ──
+// Matches Dexed's ScaleLevel / ScaleCurve functions.
+// Returns an offset added to the outlevel (positive = louder for + curves, quieter for - curves)
+const EXP_SCALE_DATA = [
+  0,1,2,3,4,5,6,7,8,9,11,14,16,19,23,27,33,39,47,56,66,
+  80,94,110,126,142,158,174,190,206,222,238,250
+];
+
+function scaleCurve(group, depth, curve) {
+  let scale;
+  if (curve === 0 || curve === 3) {
+    scale = (group * depth * 329) >> 12;
+  } else {
+    const raw = EXP_SCALE_DATA[Math.min(group, EXP_SCALE_DATA.length - 1)];
+    scale = (raw * depth * 329) >> 15;
   }
-  return scalingDb;
+  if (curve < 2) scale = -scale;
+  return scale;
 }
 
-// Velocity scaling (kept — issue #12 is later)
-function velocityScale(velocity, sensitivity) {
-  if (sensitivity === 0) return 1.0;
-  const velFactor = velocity / 127.0;
-  const sens = sensitivity / 7.0;
-  return 1.0 - sens * (1.0 - velFactor);
+function kbdLevelScale(note, breakpoint, leftDepth, rightDepth, leftCurve, rightCurve) {
+  const bp = breakpoint + 17;
+  const offset = note - bp;
+  if (offset >= 0) {
+    return scaleCurve(Math.floor((offset + 1) / 3), rightDepth, rightCurve);
+  } else {
+    return scaleCurve(Math.floor((-offset + 1) / 3), leftDepth, leftCurve);
+  }
 }
 
-// ============================================================
-// DX7 Operator — with fixes #4, #7, #8, #9
-// ============================================================
+// ── DX7 Operator ──
+// The real DX7 signal path:
+// 1. Compute totalTL = outputLevelTL + envelopeLogLevel + velocityTL + klsTL + lfoAmpTL
+// 2. Convert to linear: amp = logLevelToLinear(totalTL)
+// 3. Output = sin(phase + modInput) * amp
+// The amplitude IS the modulation index for modulators.
+// At output level 99 (TL=0) with envelope at max (logLevel=0),
+// the operator outputs ±1.0. When used as a modulator, this means
+// ±1.0 cycles of phase deviation = ±2π radians. This is the correct
+// DX7 modulation depth.
 class DX7Operator {
   constructor() {
     this.phase = 0;
@@ -438,23 +436,26 @@ class DX7Operator {
     this.kbdLevelScaleRC = 0;
     this.freqRatio = 1.0;
     this.fixedFreq = 0;
-    this.ampScale = 1.0;
+    this.outlevel = 0;
     this.output = 0;
-    this.baseNote = 60; // Store for detune calculation
+    // Gain interpolation state (matches Dexed's gain_out / level_in)
+    this.gain_out = 0;  // previous block's gain (for interpolation)
+    this.level_in = 0;  // current block's level (from envelope)
   }
 
   computeFreq() {
     if (this.oscMode === 0) {
-      // FIX #8: ratio = coarse * (1 + fine * 0.01023)
       let ratio = COARSE_RATIO[this.freqCoarse] || 1.0;
-      ratio *= (1.0 + this.freqFine * 0.01023);
+      // Dexed: logfreq += floor(24204406.323123 * log(1 + 0.01*fine) + 0.5)
+      // This equals: ratio *= (1 + 0.01 * fine)
+      ratio *= (1.0 + this.freqFine * 0.01);
       this.freqRatio = ratio;
     } else {
-      // FIX #7: Fixed mode — logarithmic interpolation within decade
-      const power = this.freqCoarse & 3;
-      const base = FIXED_FREQ_BASE[power];
-      // fine 0 = base, fine 99 = base * 10 (logarithmic)
-      this.fixedFreq = base * Math.pow(10, this.freqFine / 99.0);
+      // Fixed frequency mode — ported from Dexed dx7note.cc:
+      // logfreq = (4458616 * ((coarse & 3) * 100 + fine)) >> 3
+      // freq = 2^(logfreq / (1<<24))
+      const logfreq = (4458616 * ((this.freqCoarse & 3) * 100 + this.freqFine)) >> 3;
+      this.fixedFreq = Math.pow(2, logfreq / (1 << 24));
     }
   }
 
@@ -462,473 +463,229 @@ class DX7Operator {
     return this.oscMode === 0 ? baseFreq * this.freqRatio : this.fixedFreq;
   }
 
-  // FIX #9: Detune is a fixed Hz offset, not a ratio.
-  // Real DX7: detune 0-14, center=7. Each step adds/subtracts
-  // a fixed frequency offset that's roughly 0.022 * baseFreq Hz.
-  // This means higher notes get less detuning in cents.
-  // The actual offset is approximately: (detune - 7) * 0.022 * freq
-  // But it's computed as a phase increment offset, not a ratio.
   getDetuneHz(freq) {
     if (this.detune === 7) return 0;
-    // Approximate DX7 detune: each step ≈ 0.44 Hz at A4 (440 Hz)
-    // Scales linearly with frequency
-    return (this.detune - 7) * 0.022 * freq;
+    const logfreq = Math.log2(freq) * (1 << 24);
+    const detuneRatio = 0.0209 * Math.exp(-0.396 * logfreq / (1 << 24)) / 7;
+    const logOffset = detuneRatio * logfreq * (this.detune - 7);
+    return freq * (Math.pow(2, logOffset / (1 << 24)) - 1);
   }
 
-  noteOn(note, velocity) {
-    this.baseNote = note;
-    const klsDb = kbdLevelScale(
+  noteOn(note, velocity, sampleRate) {
+    let ol = scaleOutLevel(this.outputLevel);
+    const kls = kbdLevelScale(
       note, this.kbdLevelScaleBP,
       this.kbdLevelScaleLD, this.kbdLevelScaleRD,
       this.kbdLevelScaleLC, this.kbdLevelScaleRC
     );
-    const velScale = velocityScale(velocity, this.velSensitivity);
-    const baseAmp = dx7LevelToAmp(this.outputLevel);
-    const klsScale = Math.pow(10, klsDb / 20.0);
-    this.ampScale = baseAmp * velScale * Math.max(0, Math.min(2, klsScale));
+    ol += kls;
+    ol = Math.min(127, Math.max(0, ol));
+    ol = ol << 5;
+    ol += scaleVelocity(velocity, this.velSensitivity);
+    this.outlevel = Math.max(0, ol);
 
-    // FIX #10: keyboard rate scaling
     const rateOffset = kbdRateScale(note, this.kbdRateScaling);
-    this.envelope.noteOn(rateOffset);
+    this.envelope.init(this.outlevel, rateOffset, sampleRate);
+    this.envelope.keydown(true);
   }
 
-  noteOff() {
-    this.envelope.noteOff();
-  }
+  noteOff() { this.envelope.keydown(false); }
 
-  // FIX #4: Modulation index scaling.
-  // The real DX7 scales modulator output so that level 99 produces
-  // a phase deviation of approximately ±π radians (= ±0.5 in our
-  // 0-1 phase system). We multiply the output by MODINDEX_SCALE
-  // so that when used as modulation input, the phase offset is correct.
-  // When used as carrier output (audio), this scaling makes it louder
-  // than ±1, but the master volume compensates.
-  process(freq, modInput, sampleRate, lfoAmpMod) {
-    // FIX #9: Apply detune as Hz offset
-    const detuneHz = this.getDetuneHz(freq);
-    const actualFreq = freq + detuneHz;
-
-    this.phase += actualFreq / sampleRate;
-    if (this.phase >= 1.0) this.phase -= Math.floor(this.phase);
-
-    const envLevel = this.envelope.process(sampleRate);
-
-    let ampMod = 1.0;
-    if (this.ampModSens > 0) {
-      const amd = this.ampModSens / 3.0;
-      ampMod = 1.0 - amd * (1.0 - (lfoAmpMod + 1.0) * 0.5);
+  // Called once per 64-sample block to update the envelope and compute new gain.
+  // Returns the new gain (float amplitude).
+  updateGain(lfoAmpMod) {
+    const level = this.envelope.getsample();
+    this.level_in = level;
+    // Dexed: gain = Exp2(level_in - 14*(1<<24))
+    // Exp2 returns Q24 format: at x=0 → 1<<24, at x=1<<24 → 2<<24
+    // The >> (6 - intPart) in Exp2::lookup normalizes to Q24
+    // At max (level=3840<<16, x=1<<24): gain = 2*(1<<24) = 33554432
+    // output = sin(1<<24) * gain >> 24 = gain = 33554432
+    // As phase cycles: 33554432 / (1<<24) = 2.0 cycles
+    // In our 0-1 cycle system: gain_float = 2^expArg * 2
+    // (the *2 accounts for Exp2 returning 2^(x+1) at x=1 due to the shift)
+    // Actually: Exp2(x) in Q24 = 2^(x/(1<<24)) * (1<<24)
+    // output = sin * Exp2(x) >> 24 = sin * 2^(x/(1<<24))
+    // As cycles: 2^(x/(1<<24))
+    // At max (x=1<<24): 2^1 = 2 cycles
+    // So gain_float = 2^expArg (where expArg = level/(1<<24) - 14)
+    const expArg = level / (1 << 24) - 14;
+    let gain = (expArg < -30) ? 0 : Math.pow(2, expArg);
+    // Apply LFO amp mod
+    if (lfoAmpMod > 0) {
+      gain *= Math.pow(2, -lfoAmpMod / 256);
     }
+    return gain;
+  }
 
-    // FIX #4: Scale output by π for correct FM modulation depth
-    // sin(phase + modInput) where modInput is in cycles (0-1 range)
-    // A modulator at level 99 should produce ±π radians of phase deviation
-    // In our 0-1 phase system, π radians = 0.5 cycles
-    // So we scale the output by 0.5 (half a cycle) at full amplitude
-    const totalPhase = this.phase + modInput;
-    this.output = sineLookup(totalPhase) * envLevel * this.ampScale * ampMod * Math.PI;
-
+  // Process one sample with gain interpolation.
+  // gain is the interpolated gain for this sample.
+  processSample(freq, modInput, sampleRate, gain) {
+    const detuneHz = this.getDetuneHz(freq);
+    this.phase += (freq + detuneHz) / sampleRate;
+    if (this.phase >= 1.0) this.phase -= Math.floor(this.phase);
+    this.output = sineLookup(this.phase + modInput) * gain;
     return this.output;
   }
 
-  isActive() {
-    return this.envelope.active;
-  }
+  isActive() { return this.envelope.isActive(); }
 }
 
-// ============================================================
-// FIX #5: Accurate feedback scaling.
-// Real DX7 feedback values (0-7) map to these phase modulation depths:
-// 0=0, 1=π/16, 2=π/8, 3=π/4, 4=π/2, 5=π, 6=2π, 7=4π
-// The feedback is the average of the last two output samples.
-// In our system where output is already scaled by π (fix #4),
-// we need to scale the feedback accordingly.
-// ============================================================
-const FEEDBACK_SCALE = [
-  0,                    // 0: off
-  Math.PI / 16,         // 1
-  Math.PI / 8,          // 2
-  Math.PI / 4,          // 3
-  Math.PI / 2,          // 4
-  Math.PI,              // 5
-  2 * Math.PI,          // 6
-  4 * Math.PI           // 7
-];
+// ── Feedback ──
+// Ported from Dexed's compute_fb in fm_op_kernel.cc.
+// In Dexed, feedback is computed PER-SAMPLE (not per-block):
+//   int32_t scaled_fb = (y0 + y) >> (fb_shift + 1);
+//   y0 = y;
+//   y = Sin::lookup(phase + scaled_fb);
+//   y = ((int64_t)y * (int64_t)gain) >> 24;
+// where fb_shift = FEEDBACK_BITDEPTH(8) - feedback for feedback > 0.
+//
+// The per-sample recursion is critical: each sample's output feeds back
+// into the next sample's phase, creating a self-modulating loop that
+// builds up harmonics. Block-level feedback cannot replicate this.
+//
+// Scaling derivation:
+// Dexed's Sin::lookup uses 2^24 phase units per cycle.
+// At level 99: gain = Exp2(1<<24) = 2^25 = 33554432.
+// Sin::lookup returns ±(1<<24). y = sin * gain >> 24 = ±2^25.
+// fb=7 (shift=1): scaled_fb = (2^25 + 2^25) >> 2 = 2^24 = 1 full cycle.
+// Our output at level 99: gain = 2.0, y = sin * 2.0 ≈ ±2.0.
+// Our phase is 0-1 (1.0 = full cycle).
+// Need: (y0 + y) * scale = Dexed's phase fraction.
+// General: Dexed phase fraction = 2^(fb-7) cycles.
+// Our: (y0+y) * scale = 4.0 * scale = 2^(fb-7).
+// scale = 2^(fb-9).
+const FEEDBACK_SCALE = [];
+(function() {
+  FEEDBACK_SCALE[0] = 0;
+  for (let fb = 1; fb <= 7; fb++) {
+    // Dexed: scaled_fb = (y0 + y) >> (fb_shift + 1) where fb_shift = 8 - fb
+    // Dexed's Sin::lookup uses 2^24 phase units per cycle (not 2^32).
+    // At level 99: gain = 2*(1<<24), sin = ±(1<<24), y = ±(1<<25).
+    // fb=7 (shift=1): scaled_fb = 2*(1<<25) >> 2 = 1<<25 → 1<<25/1<<24 = 2 cycles
+    // Actually: (y0+y) = 2^26, >> (9-fb) = 2^(17+fb), /2^24 = 2^(fb-7) cycles.
+    // Our output at level 99: ±2.0, so (y0+y) = 4.0.
+    // Need: 4.0 * scale = 2^(fb-7) → scale = 2^(fb-9).
+    FEEDBACK_SCALE[fb] = Math.pow(2, fb - 9);
+  }
+})();
 
-// Feedback operator index for each algorithm (0-based, matching DX7 docs)
+// Feedback operator index per algorithm (0-based, derived from Dexed's algorithm table)
 const FEEDBACK_OP = [
-  5, 1, 5, 5, 5, 5, 5, 3,   // algos 1-8  (8: fb on OP4=idx3)
-  5, 2, 5, 1, 2, 5, 5, 5,   // algos 9-16 (10: fb on OP3=idx2, 13: fb on OP3=idx2)
-  0, 5, 5, 2, 5, 5, 5, 5,   // algos 17-24
-  5, 5, 5, 5, 5, 5, 5, 5    // algos 25-32
+  0, 4, 0, 0, 0, 0, 0, 2,   // algos 1-8
+  4, 3, 0, 4, 0, 0, 4, 0,   // algos 9-16
+  4, 3, 0, 3, 3, 0, 0, 0,   // algos 17-24
+  0, 0, 3, 1, 0, 1, 0, 0    // algos 25-32
 ];
 
-function processAlgorithm(algo, ops, freqs, feedback, fbScaleIdx, sampleRate, lfoAmpMod) {
-  // FIX #5: Use accurate feedback table
-  // feedback[] stores raw output values (already scaled by π from operator)
-  // We need to convert to phase offset: avg(last2) * fbScale / π
-  // (dividing by π because the operator output already includes the π scaling)
-  const fbScale = FEEDBACK_SCALE[fbScaleIdx] / Math.PI;
-  const fb = fbScaleIdx > 0 ? (feedback[0] + feedback[1]) * 0.5 * fbScale : 0;
+// Pre-parsed algorithm data for fast access (avoids re-parsing flags each sample)
+const ALGOS = [
+  [0xc1,0x11,0x11,0x14,0x01,0x14],[0x01,0x11,0x11,0x14,0xc1,0x14],
+  [0xc1,0x11,0x14,0x01,0x11,0x14],[0xc1,0x11,0x94,0x01,0x11,0x14],
+  [0xc1,0x14,0x01,0x14,0x01,0x14],[0xc1,0x94,0x01,0x14,0x01,0x14],
+  [0xc1,0x11,0x05,0x14,0x01,0x14],[0x01,0x11,0xc5,0x14,0x01,0x14],
+  [0x01,0x11,0x05,0x14,0xc1,0x14],[0x01,0x05,0x14,0xc1,0x11,0x14],
+  [0xc1,0x05,0x14,0x01,0x11,0x14],[0x01,0x05,0x05,0x14,0xc1,0x14],
+  [0xc1,0x05,0x05,0x14,0x01,0x14],[0xc1,0x05,0x11,0x14,0x01,0x14],
+  [0x01,0x05,0x11,0x14,0xc1,0x14],[0xc1,0x11,0x02,0x25,0x05,0x14],
+  [0x01,0x11,0x02,0x25,0xc5,0x14],[0x01,0x11,0x11,0xc5,0x05,0x14],
+  [0xc1,0x14,0x14,0x01,0x11,0x14],[0x01,0x05,0x14,0xc1,0x14,0x14],
+  [0x01,0x14,0x14,0xc1,0x14,0x14],[0xc1,0x14,0x14,0x14,0x01,0x14],
+  [0xc1,0x14,0x14,0x01,0x14,0x04],[0xc1,0x14,0x14,0x14,0x04,0x04],
+  [0xc1,0x14,0x14,0x04,0x04,0x04],[0xc1,0x05,0x14,0x01,0x14,0x04],
+  [0x01,0x05,0x14,0xc1,0x14,0x04],[0x04,0xc1,0x11,0x14,0x01,0x14],
+  [0xc1,0x14,0x01,0x14,0x04,0x04],[0x04,0xc1,0x11,0x14,0x04,0x04],
+  [0xc1,0x14,0x04,0x04,0x04,0x04],[0xc4,0x04,0x04,0x04,0x04,0x04],
+];
+
+function processAlgorithm(algo, ops, freqs, feedback, fbScaleIdx, sampleRate, gains) {
+  const fbScale = FEEDBACK_SCALE[fbScaleIdx];
+  const alg = ALGOS[algo];
+  const bus = [0, 0];
+  const hasContents = [true, false, false]; // bus 0 (output) always has content
+  let out = 0;
   const fbOpIdx = FEEDBACK_OP[algo];
 
-  let out = 0;
-  const p = (opIdx, mod) => ops[opIdx].process(freqs[opIdx], mod, sampleRate, lfoAmpMod);
-  const pfb = (opIdx, mod) => {
-    const totalMod = opIdx === fbOpIdx ? mod + fb : mod;
-    return ops[opIdx].process(freqs[opIdx], totalMod, sampleRate, lfoAmpMod);
-  };
+  for (let op = 0; op < 6; op++) {
+    const flags = alg[op];
+    const inBus = (flags >> 4) & 3;
+    const outBus = flags & 3;
+    let addToOut = (flags & 0x04) !== 0;
+    const hasFbIn = (flags & 0xC0) === 0xC0;
+    const opGain = gains[op];
 
-  switch (algo) {
-    case 0: { // Algo 1: 6→5→4→3 + 2→1, carriers=[1], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2 + o3);
-      break;
+    if (!hasContents[outBus]) addToOut = false;
+
+    let modInput = 0;
+    if (hasFbIn) {
+      // Per-sample feedback matching Dexed's compute_fb:
+      // scaled_fb = (y0 + y) >> (fb_shift + 1)
+      // In our float system: (fb[0] + fb[1]) * fbScale
+      modInput = fbScale > 0 ? (feedback[0] + feedback[1]) * fbScale : 0;
+    } else if (inBus > 0 && inBus <= 2 && hasContents[inBus]) {
+      modInput = bus[inBus - 1];
     }
-    case 1: { // Algo 2: 2→1, 6→5→4→3, carriers=[1,3], fb=2
-      // FIX: was double-processing OP1
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, o4);
-      const o2 = pfb(1, 0);
-      const o1 = p(0, o2);
-      out = o1 + o3;
-      break;
-    }
-    case 2: { // Algo 3: 3→2→1, 6→5→4, carriers=[1,4], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2) + o4;
-      break;
-    }
-    case 3: { // Algo 4: 6→5→4→3→2→1, carriers=[1], fb=6
-      // Note: real algo 4 has 6→5, 4→3→2→1, with 6 having fb
-      // and a special path where 4 feeds back to 6. We simplify
-      // to the standard serial chain which is the common interpretation.
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, o4);
-      const o2 = p(1, o3);
-      out = p(0, o2);
-      break;
-    }
-    case 4: { // Algo 5: 6→5, 4→3, 2→1, carriers=[1,3,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o5;
-      break;
-    }
-    case 5: { // Algo 6: same as 5 but all modulators share fb character
-      // Real difference: algo 6 has all three pairs with 2→1, 4→3, 6→5
-      // but the feedback on 6 is applied differently (square wave character)
-      // For now, same topology — the fb scaling table handles the difference
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o5;
-      break;
-    }
-    case 6: { // Algo 7: 6→5, (3+5)→4→2→1, carriers=[1], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o3 = p(2, 0);
-      const o4 = p(3, o5);
-      out = p(0, p(1, o3 + o4));
-      break;
-    }
-    case 7: { // Algo 8: 4→3→2→1, 6→5, carriers=[1,5], fb=4
-      const o4 = pfb(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, o3);
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      out = p(0, o2) + o5;
-      break;
-    }
-    case 8: { // Algo 9: 6→5→4, 3→2, (2+4)→1, carriers=[1], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2 + o4);
-      break;
-    }
-    case 9: { // Algo 10: 3→2→1, 6→(4+5), carriers=[1,4,5], fb=3
-      const o3 = pfb(2, 0);
-      const o2 = p(1, o3);
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o6);
-      out = p(0, o2) + o4 + o5;
-      break;
-    }
-    case 10: { // Algo 11: 6→5→4, 3→2→1, carriers=[1,4], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2) + o4;
-      break;
-    }
-    case 11: { // Algo 12: 6→5→4→3, 2→1, carriers=[1,3], fb=2
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, o4);
-      const o2 = pfb(1, 0);
-      out = p(0, o2) + o3;
-      break;
-    }
-    case 12: { // Algo 13: 6→5→4, 3→2→1, carriers=[1,4], fb=2 (on OP3 actually)
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = pfb(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2) + o4;
-      break;
-    }
-    case 13: { // Algo 14: 6→5→4→3, 2, (2+3)→1, carriers=[1], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2 + o3);
-      break;
-    }
-    case 14: { // Algo 15: 6→5→2→1, 4→3, carriers=[1,3], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, o5);
-      out = p(0, o2) + o3;
-      break;
-    }
-    case 15: { // Algo 16: 6→5, (3+5)→4→2→1, carriers=[1], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o3 = p(2, 0);
-      const o4 = p(3, o5);
-      out = p(0, p(1, o3 + o4));
-      break;
-    }
-    case 16: { // Algo 17: (4→3 + 6→5)→2→1, carriers=[1], fb=1
-      const o6 = p(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, o3 + o5);
-      out = pfb(0, o2);
-      break;
-    }
-    case 17: { // Algo 18: 6→(4+5), 3→2→1, carriers=[1,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o6);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2) + o4 + o5;
-      break;
-    }
-    case 18: { // Algo 19: 6→5, 6→4→3, 2→1, carriers=[1,3,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o6);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o5;
-      break;
-    }
-    case 19: { // Algo 20: 3→1, 3→2, 5→4, 6, carriers=[1,2,4,6], fb=3
-      const o6 = p(5, 0);
-      const o5 = p(4, 0);
-      const o4 = p(3, o5);
-      const o3 = pfb(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o3) + o2 + o4 + o6;
-      break;
-    }
-    case 20: { // Algo 21: 3→2→1, 5→4, 6, carriers=[1,4,6], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, 0);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, o2) + o4 + o6;
-      break;
-    }
-    case 21: { // Algo 22: 6→5, 4→3, 2→1, carriers=[1,3,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o5;
-      break;
-    }
-    case 22: { // Algo 23: 6→5, 6→4, 3, 2→1, carriers=[1,3,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o6);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o4 + o5;
-      break;
-    }
-    case 23: { // Algo 24: 6→5, 6→4, 6→3, 2→1, carriers=[1,3,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o6);
-      const o3 = p(2, o6);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o4 + o5;
-      break;
-    }
-    case 24: { // Algo 25: 6→5, 4, 3, 2→1, carriers=[1,3,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o4 + o5;
-      break;
-    }
-    case 25: { // Algo 26: 6→5, 3→2, 4, 1, carriers=[1,2,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, 0) + o2 + o4 + o5;
-      break;
-    }
-    case 26: { // Algo 27: 3→2, 6→5, 4, 1, carriers=[1,2,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, 0);
-      const o2 = p(1, o3);
-      out = p(0, 0) + o2 + o4 + o5;
-      break;
-    }
-    case 27: { // Algo 28: 6→5→4, 3, 2→1, carriers=[1,3,4], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, o2) + o3 + o4;
-      break;
-    }
-    case 28: { // Algo 29: 6→5, 4→3, 2, 1, carriers=[1,2,3,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, o4);
-      const o2 = p(1, 0);
-      out = p(0, 0) + o2 + o3 + o5;
-      break;
-    }
-    case 29: { // Algo 30: 6→5→4, 3, 2, 1, carriers=[1,2,3,4], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, o5);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, 0) + o2 + o3 + o4;
-      break;
-    }
-    case 30: { // Algo 31: 6→5, 4, 3, 2, 1, carriers=[1,2,3,4,5], fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, o6);
-      const o4 = p(3, 0);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, 0) + o2 + o3 + o4 + o5;
-      break;
-    }
-    case 31: { // Algo 32: all carriers, fb=6
-      const o6 = pfb(5, 0);
-      const o5 = p(4, 0);
-      const o4 = p(3, 0);
-      const o3 = p(2, 0);
-      const o2 = p(1, 0);
-      out = p(0, 0) + o2 + o3 + o4 + o5 + o6;
-      break;
+
+    const opOut = ops[op].processSample(freqs[op], modInput, sampleRate, opGain);
+
+    if (outBus >= 1 && outBus <= 2) { bus[outBus - 1] = opOut; hasContents[outBus] = true; }
+    if (addToOut) out += opOut;
+
+    // Update feedback buffer per-sample (matching Dexed's compute_fb)
+    if (op === fbOpIdx) {
+      feedback[1] = feedback[0];
+      feedback[0] = opOut;
     }
   }
-
-  // Update feedback buffer with raw operator output
-  feedback[1] = feedback[0];
-  feedback[0] = ops[fbOpIdx].output;
 
   return out;
 }
 
-// ============================================================
-// DX7 Voice
-// ============================================================
+const CARRIER_COUNT = [
+  2, 2, 2, 2, 3, 3, 3, 3,   // algos 1-8
+  3, 3, 3, 4, 4, 3, 3, 3,   // algos 9-16
+  3, 3, 3, 4, 4, 4, 4, 5,   // algos 17-24
+  5, 4, 4, 3, 4, 4, 5, 6    // algos 25-32
+];
+
+// ── DX7 Voice ──
 class DX7Voice {
   constructor() {
     this.ops = [];
     for (let i = 0; i < 6; i++) this.ops.push(new DX7Operator());
     this.pitchEnv = new DX7PitchEnvelope();
-    this.lfo = new DX7LFO();
     this.feedback = [0, 0];
-    this.note = 0;
-    this.velocity = 0;
-    this.active = false;
-    this.sustained = false;
-    this.released = false;
-    this.algorithm = 0;
-    this.feedbackIdx = 0; // Store the raw 0-7 index for the table lookup
-    this.transpose = 24;
-    this.pitchModSens = 0;
-    this.oscSync = false;
+    this.note = 0; this.targetNote = 0; this.currentPitch = 0;
+    this.velocity = 0; this.active = false;
+    this.sustained = false; this.released = false;
+    this.algorithm = 0; this.feedbackIdx = 0;
+    this.transpose = 24; this.pitchModSens = 0;
+    this.oscSync = false; this.carrierCount = 1; this.age = 0;
   }
 
   noteOn(note, velocity, patch) {
-    this.note = note;
-    this.velocity = velocity;
-    this.active = true;
-    this.sustained = false;
-    this.released = false;
+    this.targetNote = note; this.note = note;
+    this.velocity = velocity; this.active = true;
+    this.sustained = false; this.released = false; this.age = 0;
     this.algorithm = patch.algorithm;
     this.transpose = patch.transpose;
     this.pitchModSens = patch.pitchModSens;
     this.oscSync = patch.oscSync;
-
-    // FIX #5: Store raw feedback index (0-7) for table lookup
     this.feedbackIdx = patch.feedback;
+    this.carrierCount = CARRIER_COUNT[patch.algorithm] || 1;
 
-    this.feedback[0] = 0;
-    this.feedback[1] = 0;
+    if (patch.portamentoTime > 0 && this.currentPitch > 0) {
+    } else {
+      this.currentPitch = note;
+    }
+
+    this.feedback[0] = 0; this.feedback[1] = 0;
 
     this.pitchEnv.setParams(
       patch.pitchEgR1, patch.pitchEgR2, patch.pitchEgR3, patch.pitchEgR4,
       patch.pitchEgL1, patch.pitchEgL2, patch.pitchEgL3, patch.pitchEgL4
     );
-    this.pitchEnv.noteOn();
-
-    this.lfo.setParams(patch.lfoSpeed, patch.lfoDelay, patch.lfoWave, patch.lfoSync);
-    this.lfo.noteOn();
+    this.pitchEnv.init(sampleRate);
 
     for (let i = 0; i < 6; i++) {
       const op = this.ops[i];
@@ -950,7 +707,10 @@ class DX7Voice {
       op.kbdLevelScaleRC = d.kbdLevelScaleRC;
       op.computeFreq();
       if (this.oscSync) op.phase = 0;
-      op.noteOn(note, velocity);
+      // Reset gain_out to 0 so the new note fades in from silence
+      // (gain interpolation will smoothly ramp from 0 to the new gain)
+      op.gain_out = 0;
+      op.noteOn(note, velocity, sampleRate);
     }
   }
 
@@ -959,81 +719,162 @@ class DX7Voice {
     this.pitchEnv.noteOff();
   }
 
-  process(sampleRate) {
-    if (!this.active) return 0;
+  getAmplitude() {
+    let sum = 0;
+    for (let i = 0; i < 6; i++) sum += Math.abs(this.ops[i].output);
+    return sum;
+  }
 
-    let anyActive = false;
+  // Process a block of N samples. Returns an array of N output values.
+  processBlock(blockSize, sampleRate, lfoVal, lfo, pitchBend, modWheel, aftertouch, portamentoRate) {
+    if (!this.active) return null;
+    this.age++;
+
+    // Check if any CARRIER envelope is still active (matching Dexed's isPlaying())
+    // Only carriers matter — modulators can be silent without killing the voice
+    let anyCarrierActive = false;
     for (let i = 0; i < 6; i++) {
-      if (this.ops[i].isActive()) { anyActive = true; break; }
+      if (this.ops[i].isActive()) { anyCarrierActive = true; break; }
     }
-    if (!anyActive) { this.active = false; return 0; }
 
-    const pitchSemitones = this.pitchEnv.process(sampleRate);
-    const lfoVal = this.lfo.process(sampleRate);
-    const lfoPitch = lfoVal * this.pitchModSens * 2;
+    if (!anyCarrierActive) {
+      // Fade out over this block to avoid click
+      const output = new Float32Array(blockSize);
+      const fadeGains = new Float64Array(6);
+      const freqs = new Float64Array(6);
+      const baseFreq = midiToFreq(this.currentPitch + (this.transpose - 24));
+      for (let i = 0; i < 6; i++) freqs[i] = this.ops[i].getFreq(baseFreq);
 
-    const transNote = this.note + (this.transpose - 24);
-    const baseFreq = midiToFreq(transNote + pitchSemitones + lfoPitch);
+      for (let s = 0; s < blockSize; s++) {
+        const fade = 1.0 - s / blockSize;
+        for (let i = 0; i < 6; i++) fadeGains[i] = this.ops[i].gain_out * fade;
+        output[s] = processAlgorithm(
+          this.algorithm, this.ops, freqs,
+          this.feedback, this.feedbackIdx,
+          sampleRate, fadeGains
+        ) ;
+      }
+      // Zero out gains so next use starts clean
+      for (let i = 0; i < 6; i++) this.ops[i].gain_out = 0;
+      this.active = false;
+      return output;
+    }
+
+    // Portamento
+    if (portamentoRate > 0 && Math.abs(this.currentPitch - this.note) > 0.01) {
+      const gs = portamentoRate / sampleRate * blockSize;
+      this.currentPitch += (this.note > this.currentPitch ? 1 : -1) * Math.min(gs, Math.abs(this.note - this.currentPitch));
+    } else {
+      this.currentPitch = this.note;
+    }
+
+    // Pitch (computed once per block)
+    const pitchSemitones = this.pitchEnv.getsample();
+    const lfoPitch = lfo.getPitchMod(lfoVal, this.pitchModSens);
+    const atPitch = aftertouch * this.pitchModSens * 0.1;
+    const modPitch = modWheel * this.pitchModSens * 0.5;
+    const transNote = this.currentPitch + (this.transpose - 24);
+    const totalPitch = transNote + pitchSemitones + lfoPitch + pitchBend + atPitch + modPitch;
+    const baseFreq = midiToFreq(totalPitch);
 
     const freqs = new Float64Array(6);
+    for (let i = 0; i < 6; i++) freqs[i] = this.ops[i].getFreq(baseFreq);
+
+    // Update envelopes and compute gains (once per block)
+    const gain1 = new Float64Array(6); // previous gain
+    const gain2 = new Float64Array(6); // new gain
     for (let i = 0; i < 6; i++) {
-      freqs[i] = this.ops[i].getFreq(baseFreq);
-      // Detune is applied inside operator.process() now (fix #9)
+      gain1[i] = this.ops[i].gain_out;
+      const lfoAmp = lfo.getAmpModReduction(lfoVal, this.ops[i].ampModSens);
+      gain2[i] = this.ops[i].updateGain(lfoAmp);
+      this.ops[i].gain_out = gain2[i];
     }
 
-    return processAlgorithm(
-      this.algorithm, this.ops, freqs,
-      this.feedback, this.feedbackIdx,
-      sampleRate, lfoVal
-    );
+    // Render block with per-sample gain interpolation
+    const output = new Float32Array(blockSize);
+    const gains = new Float64Array(6);
+    for (let s = 0; s < blockSize; s++) {
+      const t = (s + 1) / blockSize;
+      for (let i = 0; i < 6; i++) {
+        gains[i] = gain1[i] + (gain2[i] - gain1[i]) * t;
+      }
+      let out = processAlgorithm(
+        this.algorithm, this.ops, freqs,
+        this.feedback, this.feedbackIdx,
+        sampleRate, gains
+      );
+      output[s] = out ;
+    }
+
+    return output;
   }
 }
 
-// ============================================================
-// DX7 AudioWorklet Processor
-// ============================================================
+// ── DX7 Processor ──
 class DX7Processor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.voices = [];
     for (let i = 0; i < MAX_POLYPHONY; i++) this.voices.push(new DX7Voice());
     this.patch = null;
-    // Adjusted master volume: operator output is now scaled by π (fix #4)
-    // so we need lower master gain to compensate
-    this.masterVolume = 0.05;
+    this.masterVolume = 0.1;
     this.sustainPedal = false;
+    this.lfo = new DX7GlobalLFO();
+    this.pitchBend = 0;
+    this.pitchBendRange = 2;
+    this.modWheel = 0;
+    this.aftertouch = 0;
+    this.portamentoTime = 0;
+    this.portamentoMode = 0;
 
     this.port.onmessage = (e) => {
       const msg = e.data;
       switch (msg.type) {
         case 'noteOn': this._noteOn(msg.note, msg.velocity); break;
         case 'noteOff': this._noteOff(msg.note); break;
-        case 'patch': this.patch = msg.patch; break;
+        case 'patch': this._setPatch(msg.patch); break;
         case 'sustain': this._sustain(msg.value); break;
+        case 'pitchBend': this._pitchBend(msg.value); break;
+        case 'modWheel': this.modWheel = msg.value / 127.0; break;
+        case 'aftertouch': this.aftertouch = msg.value / 127.0; break;
         case 'panic': this._panic(); break;
       }
     };
   }
 
+  _setPatch(patch) {
+    this.patch = patch;
+    this.lfo.setParams(
+      patch.lfoSpeed, patch.lfoDelay, patch.lfoWave, patch.lfoSync,
+      patch.lfoPitchModDepth, patch.lfoAmpModDepth
+    );
+    this.portamentoTime = patch.portamentoTime || 0;
+    this.portamentoMode = patch.portamentoMode || 0;
+    this.pitchBendRange = patch.pitchBendRange || 2;
+  }
+
+  _pitchBend(value) {
+    this.pitchBend = ((value - 8192) / 8192) * this.pitchBendRange;
+  }
+
   _noteOn(note, velocity) {
     if (!this.patch) return;
-    let voice = null;
+    let voice = null, quietest = null, quietestAmp = Infinity;
     for (const v of this.voices) {
       if (!v.active) { voice = v; break; }
+      const amp = v.getAmplitude();
+      if (amp < quietestAmp) { quietestAmp = amp; quietest = v; }
     }
-    if (!voice) voice = this.voices[0]; // steal
+    if (!voice) voice = quietest;
+    this.lfo.noteOn();
     voice.noteOn(note, velocity, this.patch);
   }
 
   _noteOff(note) {
     for (const v of this.voices) {
       if (v.active && v.note === note && !v.released) {
-        if (this.sustainPedal) {
-          v.sustained = true;
-        } else {
-          v.noteOff();
-          v.released = true;
-        }
+        if (this.sustainPedal) { v.sustained = true; }
+        else { v.noteOff(); v.released = true; }
       }
     }
   }
@@ -1042,22 +883,22 @@ class DX7Processor extends AudioWorkletProcessor {
     this.sustainPedal = on;
     if (!on) {
       for (const v of this.voices) {
-        if (v.active && v.sustained) {
-          v.noteOff();
-          v.released = true;
-          v.sustained = false;
-        }
+        if (v.active && v.sustained) { v.noteOff(); v.released = true; v.sustained = false; }
       }
     }
   }
 
   _panic() {
-    this.sustainPedal = false;
+    this.sustainPedal = false; this.pitchBend = 0;
+    this.modWheel = 0; this.aftertouch = 0;
     for (const v of this.voices) {
-      v.active = false;
-      v.sustained = false;
-      v.released = false;
-      for (const op of v.ops) op.envelope.active = false;
+      v.active = false; v.sustained = false; v.released = false;
+      for (const op of v.ops) {
+        op.envelope.active = false;
+        op.gain_out = 0;
+        op.output = 0;
+      }
+      v.feedback[0] = 0; v.feedback[1] = 0;
     }
   }
 
@@ -1067,17 +908,39 @@ class DX7Processor extends AudioWorkletProcessor {
     if (!channel) return true;
 
     const sr = sampleRate;
-    for (let s = 0; s < channel.length; s++) {
-      let mix = 0;
+    const N = 64; // Dexed block size
+    const portRate = this.portamentoTime > 0 ? 200.0 / (1 + this.portamentoTime * 2) : 0;
+
+    // Process in blocks of N samples (matching Dexed)
+    for (let blockStart = 0; blockStart < channel.length; blockStart += N) {
+      const blockEnd = Math.min(blockStart + N, channel.length);
+      const blockSize = blockEnd - blockStart;
+
+      // LFO: compute once per block
+      const lfoVal = this.lfo.process(sr);
+
+      // Render each active voice for this block
+      for (let s = blockStart; s < blockEnd; s++) channel[s] = 0;
+
       for (const voice of this.voices) {
-        if (voice.active) mix += voice.process(sr);
+        if (!voice.active) continue;
+        const voiceBlock = voice.processBlock(blockSize, sr, lfoVal, this.lfo,
+          this.pitchBend, this.modWheel, this.aftertouch, portRate);
+        if (voiceBlock) {
+          for (let s = 0; s < blockSize; s++) {
+            channel[blockStart + s] += voiceBlock[s] * this.masterVolume;
+          }
+        }
       }
-      channel[s] = mix * this.masterVolume;
+
+      // Soft limit to prevent harsh digital clipping
+      for (let s = blockStart; s < blockEnd; s++) {
+        if (channel[s] > 1.0) channel[s] = 1.0;
+        else if (channel[s] < -1.0) channel[s] = -1.0;
+      }
     }
 
-    for (let ch = 1; ch < output.length; ch++) {
-      output[ch].set(channel);
-    }
+    for (let ch = 1; ch < output.length; ch++) output[ch].set(channel);
     return true;
   }
 }
