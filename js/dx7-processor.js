@@ -330,7 +330,7 @@ class DX7GlobalLFO {
   }
   noteOn() { if (this.sync) this.phase = 0; this.delayCounter = 0; }
   process(sampleRate) {
-    this.phase += this.freq / sampleRate;
+    this.phase += this.freq * 64 / sampleRate; // advance by one block (64 samples)
     if (this.phase >= 1.0) {
       this.phase -= 1.0;
       if (this.wave === 5) this.shValue = Math.random() * 2 - 1;
@@ -817,7 +817,7 @@ class DX7Processor extends AudioWorkletProcessor {
     this.voices = [];
     for (let i = 0; i < MAX_POLYPHONY; i++) this.voices.push(new DX7Voice());
     this.patch = null;
-    this.masterVolume = 0.1;
+    this.masterVolume = 0.0625; // Matches Dexed's >>4 output scaling
     this.sustainPedal = false;
     this.lfo = new DX7GlobalLFO();
     this.pitchBend = 0;
