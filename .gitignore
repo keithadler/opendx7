@@ -1,3 +1,7 @@
 .DS_Store
 .vscode/
 node_modules/
+
+# Copyrighted Yamaha DX7 factory ROM — do not commit
+rom1a.syx
+*.syx
