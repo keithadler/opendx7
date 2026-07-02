@@ -4,6 +4,8 @@
 
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
+### ▶ [Play now](https://keithadler.github.io/opendx7/)
+
 Built with the Web Audio API. Verified against the [Dexed/msfa](https://github.com/asb2m10/dexed) open-source DX7 engine for accuracy.
 
 Created by Keith Adler.
