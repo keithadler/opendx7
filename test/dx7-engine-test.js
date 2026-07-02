@@ -528,11 +528,12 @@ section('D4. Modulator ratio affects timbre character');
 section('E1. Algorithm carrier counts');
 {
   // Expected carrier counts per algorithm (1-indexed in comments)
+  // Carriers = operators whose output goes to the final output bus (flags & 3 === 0).
   const expected = [
-    2, 2, 2, 2, 3, 3, 3, 3,   // algos 1-8
-    3, 3, 3, 4, 4, 3, 3, 3,   // algos 9-16
-    3, 3, 3, 4, 4, 4, 4, 5,   // algos 17-24
-    5, 4, 4, 3, 4, 4, 5, 6    // algos 25-32
+    2, 2, 2, 2, 3, 3, 2, 2,   // algos 1-8
+    2, 2, 2, 2, 2, 2, 2, 1,   // algos 9-16
+    1, 1, 3, 3, 4, 4, 4, 5,   // algos 17-24
+    5, 3, 3, 3, 4, 4, 5, 6    // algos 25-32
   ];
   for (let algo = 0; algo < 32; algo++) {
     // Set all ops to level 99, measure output

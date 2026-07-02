@@ -31,7 +31,9 @@ function exportPatchAsSyx(patch) {
 
 function packVoice(data, offset, patch) {
   for (let opIdx = 0; opIdx < 6; opIdx++) {
-    const op = patch.ops[5 - opIdx]; // DX7 stores OP6 first
+    // ops[] is in msfa/Dexed order (ops[0] = OP6), which is also the packed
+    // SysEx order (OP6 first), so opIdx maps straight through.
+    const op = patch.ops[opIdx];
     const o = offset + opIdx * 17;
     data[o+0] = op.egRate1 & 0x7F;
     data[o+1] = op.egRate2 & 0x7F;

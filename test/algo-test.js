@@ -107,7 +107,11 @@ for (let algo = 0; algo < 32; algo++) {
   let fbOp = -1;
 
   for (let op = 0; op < 6; op++) {
-    if (alg[op] & 0x04) carriers.push(op);
+    // A carrier writes to the final output bus (bus 0). The 0x04 bit alone is
+    // OUT_BUS_ADD and is also set on modulators that SUM into an internal bus
+    // (opcodes 0x05/0x25/0xc5), so classifying on it treats those modulators as
+    // carriers. Carrier == destination bus is 0.
+    if ((alg[op] & 0x03) === 0) carriers.push(op);
     else modulators.push(op);
     if ((alg[op] & 0xC0) === 0xC0) fbOp = op;
   }

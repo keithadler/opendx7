@@ -18,7 +18,8 @@ function assert(cond, msg) {
 // Port the packVoice function from main.js for testing
 function packVoice(data, offset, patch) {
   for (let opIdx = 0; opIdx < 6; opIdx++) {
-    const op = patch.ops[5 - opIdx];
+    // ops[] is in msfa/Dexed order (ops[0] = OP6), same as the packed SysEx order.
+    const op = patch.ops[opIdx];
     const o = offset + opIdx * 17;
     data[o+0] = op.egRate1 & 0x7F;
     data[o+1] = op.egRate2 & 0x7F;
@@ -230,13 +231,13 @@ console.log('\n5. Dexed packed voice byte layout');
 {
   // Create a patch with known values and verify specific bytes
   const p = createDefaultPatch();
-  p.ops[5].egRate1 = 77;  // OP6 is stored first (index 0 in packed data)
-  p.ops[5].outputLevel = 88;
-  p.ops[5].freqCoarse = 3;
-  p.ops[5].oscMode = 1;
-  p.ops[5].detune = 10;
-  p.ops[5].velSensitivity = 5;
-  p.ops[5].ampModSens = 2;
+  p.ops[0].egRate1 = 77;  // OP6 is ops[0] (msfa/Dexed order) and is stored first
+  p.ops[0].outputLevel = 88;
+  p.ops[0].freqCoarse = 3;
+  p.ops[0].oscMode = 1;
+  p.ops[0].detune = 10;
+  p.ops[0].velSensitivity = 5;
+  p.ops[0].ampModSens = 2;
   p.algorithm = 15;
   p.feedback = 6;
 

@@ -610,11 +610,15 @@ function processAlgorithm(algo, ops, freqs, feedback, fbScaleIdx, sampleRate, ga
     const flags = alg[op];
     const inBus = (flags >> 4) & 3;
     const outBus = flags & 3;
-    let addToOut = (flags & 0x04) !== 0;
+    // OUT_BUS_ADD (bit 2): accumulate into the destination bus vs. overwrite it.
+    // This applies to WHATEVER bus the operator targets — the final output (bus 0)
+    // OR an internal modulation bus (bus 1/2). Dexed forces overwrite when the
+    // destination bus is still empty (first writer always sets).
+    let add = (flags & 0x04) !== 0;
     const hasFbIn = (flags & 0xC0) === 0xC0;
     const opGain = gains[op];
 
-    if (!hasContents[outBus]) addToOut = false;
+    if (!hasContents[outBus]) add = false;
 
     let modInput = 0;
     if (hasFbIn) {
@@ -628,8 +632,18 @@ function processAlgorithm(algo, ops, freqs, feedback, fbScaleIdx, sampleRate, ga
 
     const opOut = ops[op].processSample(freqs[op], modInput, sampleRate, opGain);
 
-    if (outBus >= 1 && outBus <= 2) { bus[outBus - 1] = opOut; hasContents[outBus] = true; }
-    if (addToOut) out += opOut;
+    // Write to the operator's destination bus (0 = final output, 1/2 = modulation),
+    // adding or overwriting per the OUT_BUS_ADD flag. Modulators that add to an
+    // internal bus (opcodes 0x05/0x25/0xc5) must be SUMMED there — not overwritten,
+    // and not leaked into the final output.
+    if (outBus === 0) {
+      out = add ? out + opOut : opOut;
+    } else if (add) {
+      bus[outBus - 1] += opOut;
+    } else {
+      bus[outBus - 1] = opOut;
+    }
+    hasContents[outBus] = true;
 
     // Update feedback buffer per-sample (matching Dexed's compute_fb)
     if (op === fbOpIdx) {
@@ -641,11 +655,14 @@ function processAlgorithm(algo, ops, freqs, feedback, fbScaleIdx, sampleRate, ga
   return out;
 }
 
+// Number of carriers (operators writing to the final output bus, flags & 3 === 0)
+// per algorithm. Modulators that ADD to an internal bus (opcodes 0x05/0x25/0xc5)
+// are NOT carriers — they were previously miscounted as such.
 const CARRIER_COUNT = [
-  2, 2, 2, 2, 3, 3, 3, 3,   // algos 1-8
-  3, 3, 3, 4, 4, 3, 3, 3,   // algos 9-16
-  3, 3, 3, 4, 4, 4, 4, 5,   // algos 17-24
-  5, 4, 4, 3, 4, 4, 5, 6    // algos 25-32
+  2, 2, 2, 2, 3, 3, 2, 2,   // algos 1-8
+  2, 2, 2, 2, 2, 2, 2, 1,   // algos 9-16
+  1, 1, 3, 3, 4, 4, 4, 5,   // algos 17-24
+  5, 3, 3, 3, 4, 4, 5, 6    // algos 25-32
 ];
 
 // ── DX7 Voice ──
