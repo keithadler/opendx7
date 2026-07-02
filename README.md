@@ -1,6 +1,6 @@
 # OpenDX7
 
-**Version 0.2**
+**Version 1.0**
 
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
@@ -88,6 +88,13 @@ node test/e2e-test.js           # 28 end-to-end tests
 
 ## Changelog
 
+#### Version 1.0
+- Fixed SysEx operator ordering — loaded .SYX banks were mirror-imaged relative to their algorithm roles (carriers became modulators), producing near-noise. Import/export now use msfa/Dexed operator order to match the engine.
+- Fixed modulation bus summing — modulators that add to an internal bus (algorithm opcodes 0x05/0x25/0xc5) were overwriting the bus and leaking into the audio output as carriers. Now matches Dexed's `render()` add-vs-overwrite semantics.
+- Corrected per-algorithm carrier counts and the default INIT voice for the fixed operator order.
+- These fixes resolve the v0.2 known issue: loaded patches now match a real DX7 / Dexed, including high-feedback and complex modulation patches.
+- Removed the copyrighted Yamaha ROM cartridge data; supply your own .SYX banks via **LOAD SYX**.
+
 #### Version 0.2
 - Fixed LFO running 64x too slow (advanced per-sample instead of per-block)
 - Fixed output scaling to match Dexed's >>4 normalization — eliminates clipping on multi-carrier patches
@@ -95,8 +102,6 @@ node test/e2e-test.js           # 28 end-to-end tests
 - Delay feedback clamped to prevent runaway
 - Default patch set to Elec Piano 1 on startup
 - Next chord suggestions stay visible until new chord played
-
-**Known issue:** Playback does not yet fully match the sound of a real DX7 or Dexed. The FM synthesis math and operator routing are verified correct against Dexed's source, but the overall timbre — particularly on patches with high feedback or complex modulation chains — can sound harsher than expected. This is under active investigation.
 
 #### Version 0.1
 - Initial release
