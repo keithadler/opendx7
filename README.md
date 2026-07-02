@@ -45,7 +45,7 @@ Open http://localhost:8080. Select a sound and play.
 
 ## Loading DX7 patches
 
-Click **LOAD SYX** and select any standard DX7 32-voice SysEx bank file. Thousands of .SYX banks are available online. The ROM1A cartridge that shipped with the original DX7 works out of the box.
+Click **LOAD SYX** and select any standard DX7 32-voice SysEx bank file. Thousands of .SYX banks are available online. Standard factory cartridge dumps load out of the box.
 
 ## Keyboard mapping
 
