@@ -78,8 +78,8 @@ function parseMidi(data) {
   const numTracks = readU16();
   const division = readU16();
 
-  let tempo = 500000; // default 120 BPM
   const allEvents = [];
+  const tempoChanges = []; // { tick, tempo } — microseconds per beat
 
   for (let t = 0; t < numTracks; t++) {
     const trkHdr = String.fromCharCode(...read(4));
@@ -108,11 +108,13 @@ function parseMidi(data) {
       if (cmd === 0x90) { // Note On
         const note = data[pos++];
         const vel = data[pos++];
-        allEvents.push({ tick, type: vel > 0 ? 'noteOn' : 'noteOff', note, velocity: vel, ch });
+        // Channel 10 (index 9) is GM percussion — its "notes" are drum-map keys,
+        // not pitches, so skip it rather than play random blips through the synth.
+        if (ch !== 9) allEvents.push({ tick, type: vel > 0 ? 'noteOn' : 'noteOff', note, velocity: vel, ch });
       } else if (cmd === 0x80) { // Note Off
         const note = data[pos++];
         pos++; // velocity (ignored)
-        allEvents.push({ tick, type: 'noteOff', note, ch });
+        if (ch !== 9) allEvents.push({ tick, type: 'noteOff', note, ch });
       } else if (cmd === 0xA0 || cmd === 0xB0 || cmd === 0xE0) {
         pos += 2; // skip 2-byte messages
       } else if (cmd === 0xC0 || cmd === 0xD0) {
@@ -121,7 +123,8 @@ function parseMidi(data) {
         const metaType = data[pos++];
         const metaLen = readVarLen();
         if (metaType === 0x51 && metaLen === 3) { // Tempo
-          tempo = (data[pos] << 16) | (data[pos + 1] << 8) | data[pos + 2];
+          const tempo = (data[pos] << 16) | (data[pos + 1] << 8) | data[pos + 2];
+          tempoChanges.push({ tick, tempo });
         }
         pos += metaLen;
       } else if (status === 0xF0 || status === 0xF7) { // SysEx
@@ -135,16 +138,30 @@ function parseMidi(data) {
     pos = trkEnd;
   }
 
-  // Convert ticks to seconds and sort
-  const ticksPerBeat = division & 0x7FFF;
-  const secPerTick = tempo / 1000000 / ticksPerBeat;
+  // Convert ticks to seconds, honoring the full tempo map.
+  const ticksPerBeat = (division & 0x7FFF) || 480;
 
-  // Sort by tick, then convert to time
+  // Build a piecewise tempo map: sorted changes, each with the cumulative
+  // wall-clock time at which it takes effect. Default 120 BPM before any change.
+  tempoChanges.sort((a, b) => a.tick - b.tick);
+  const segs = [{ tick: 0, tempo: 500000, time: 0 }];
+  for (const tc of tempoChanges) {
+    if (tc.tick === 0) { segs[0].tempo = tc.tempo; continue; }
+    const last = segs[segs.length - 1];
+    const time = last.time + (tc.tick - last.tick) * (last.tempo / 1e6 / ticksPerBeat);
+    segs.push({ tick: tc.tick, tempo: tc.tempo, time });
+  }
+
+  const tickToSec = (tick) => {
+    let i = segs.length - 1;
+    while (i > 0 && segs[i].tick > tick) i--;
+    const s = segs[i];
+    return s.time + (tick - s.tick) * (s.tempo / 1e6 / ticksPerBeat);
+  };
+
   allEvents.sort((a, b) => a.tick - b.tick);
-
-  // Handle tempo changes properly (simplified: use first tempo for whole file)
   for (const evt of allEvents) {
-    evt.time = evt.tick * secPerTick;
+    evt.time = tickToSec(evt.tick);
   }
 
   return allEvents;
