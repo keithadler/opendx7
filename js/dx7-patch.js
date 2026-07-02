@@ -40,7 +40,8 @@ export function createDefaultPatch() {
   };
   for (let i = 0; i < 6; i++) {
     const op = createDefaultOperator();
-    if (i === 0) {
+    // ops[] is in msfa/Dexed order: ops[5] is OP1, the sole carrier of algorithm 1.
+    if (i === 5) {
       op.outputLevel = 99; // Only OP1 audible by default
       op.freqCoarse = 1;
     }
@@ -79,9 +80,12 @@ function parsePackedVoice(data, offset) {
   const patch = createDefaultPatch();
   const d = (i) => data[offset + i] || 0;
 
-  // 6 operators, each 17 bytes packed (operators stored 6,5,4,3,2,1)
+  // 6 operators, each 17 bytes packed. The DX7 SysEx stores OP6 first, and the
+  // synthesis engine (and the built-in patches) use msfa/Dexed operator order,
+  // where ops[0] is OP6 ... ops[5] is OP1 — matching the algorithm table indices.
+  // So the packed data maps straight through: opIdx 0 (OP6) -> ops[0].
   for (let opIdx = 0; opIdx < 6; opIdx++) {
-    const op = patch.ops[5 - opIdx]; // DX7 stores OP6 first
+    const op = patch.ops[opIdx];
     const o = opIdx * 17;
 
     op.egRate1 = d(o + 0) & 0x7F;
@@ -695,7 +699,7 @@ export function generateFactoryPatches() {
       3: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1 },
       4: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5 },
     }, { oscSync:true }),
-    // INIT voice: OP4 is the carrier for algo 1
-    (() => { const p = createDefaultPatch(); p.ops[0].outputLevel = 0; p.ops[3].outputLevel = 99; return p; })(),
+    // INIT voice: algo 1 with OP1 (ops[5]) as the sole carrier — the default patch.
+    createDefaultPatch(),
   ];
 }
