@@ -47,21 +47,22 @@ function packVoice(data, offset, patch) {
     data[o+9] = (op.kbdLevelScaleLD || 0) & 0x7F;
     data[o+10] = (op.kbdLevelScaleRD || 0) & 0x7F;
     data[o+11] = ((op.kbdLevelScaleLC || 0) & 0x03) | (((op.kbdLevelScaleRC || 0) & 0x03) << 2);
-    data[o+12] = ((op.kbdRateScaling || 0) & 0x07) | (((op.detune || 7) & 0x0F) << 3);
+    data[o+12] = ((op.kbdRateScaling || 0) & 0x07) | (((op.detune ?? 7) & 0x0F) << 3);
     data[o+13] = ((op.ampModSens || 0) & 0x03) | (((op.velSensitivity || 0) & 0x07) << 2);
     data[o+14] = op.outputLevel & 0x7F;
-    data[o+15] = ((op.oscMode || 0) & 0x01) | (((op.freqCoarse || 1) & 0x1F) << 1);
+    data[o+15] = ((op.oscMode || 0) & 0x01) | (((op.freqCoarse ?? 1) & 0x1F) << 1);
     data[o+16] = (op.freqFine || 0) & 0x7F;
   }
   const g = offset + 102;
-  data[g+0] = (patch.pitchEgR1 || 99) & 0x7F;
-  data[g+1] = (patch.pitchEgR2 || 99) & 0x7F;
-  data[g+2] = (patch.pitchEgR3 || 99) & 0x7F;
-  data[g+3] = (patch.pitchEgR4 || 99) & 0x7F;
-  data[g+4] = (patch.pitchEgL1 || 50) & 0x7F;
-  data[g+5] = (patch.pitchEgL2 || 50) & 0x7F;
-  data[g+6] = (patch.pitchEgL3 || 50) & 0x7F;
-  data[g+7] = (patch.pitchEgL4 || 50) & 0x7F;
+  // ?? (not ||): 0 is a legal value for all of these and must survive export
+  data[g+0] = (patch.pitchEgR1 ?? 99) & 0x7F;
+  data[g+1] = (patch.pitchEgR2 ?? 99) & 0x7F;
+  data[g+2] = (patch.pitchEgR3 ?? 99) & 0x7F;
+  data[g+3] = (patch.pitchEgR4 ?? 99) & 0x7F;
+  data[g+4] = (patch.pitchEgL1 ?? 50) & 0x7F;
+  data[g+5] = (patch.pitchEgL2 ?? 50) & 0x7F;
+  data[g+6] = (patch.pitchEgL3 ?? 50) & 0x7F;
+  data[g+7] = (patch.pitchEgL4 ?? 50) & 0x7F;
   data[g+8] = (patch.algorithm || 0) & 0x1F;
   data[g+9] = ((patch.feedback || 0) & 0x07) | ((patch.oscSync ? 1 : 0) << 3);
   data[g+10] = (patch.lfoSpeed || 0) & 0x7F;
@@ -69,7 +70,7 @@ function packVoice(data, offset, patch) {
   data[g+12] = (patch.lfoPitchModDepth || 0) & 0x7F;
   data[g+13] = (patch.lfoAmpModDepth || 0) & 0x7F;
   data[g+14] = ((patch.lfoSync ? 1 : 0) & 0x01) | (((patch.lfoWave || 0) & 0x07) << 1) | (((patch.pitchModSens || 0) & 0x07) << 4);
-  data[g+15] = (patch.transpose || 24) & 0x7F;
+  data[g+15] = (patch.transpose ?? 24) & 0x7F;
   const name = (patch.name || 'INIT VOICE').padEnd(10).substring(0, 10);
   for (let i = 0; i < 10; i++) data[g+16+i] = name.charCodeAt(i) & 0x7F;
 }
@@ -77,7 +78,9 @@ function packVoice(data, offset, patch) {
 // State
 let audioCtx, dx7Node, analyser, analyserData;
 let dryGain, reverbNode, reverbGain, delayNode, delayFbNode, delayGain;
-let currentOpIndex = 0;
+// Index into patch.ops[], which uses msfa/Dexed order: ops[5] = OP1 ... ops[0] = OP6.
+// The op tabs carry the same index in data-op, so tab "1" edits ops[5].
+let currentOpIndex = 5;
 let audioReady = false;
 
 // Patches loaded at module level — always available
@@ -89,13 +92,20 @@ const fxState = { reverbMix:30, reverbDecay:28, delayMix:20, delayTime:340, dela
 // ============================================================
 // Audio — single init, called on every note, idempotent
 // ============================================================
-async function ensureAudio() {
-  if (audioReady) return;
-  if (audioCtx) {
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    if (dx7Node) { audioReady = true; return; }
-  }
+let audioInitPromise = null;
 
+async function ensureAudio() {
+  if (audioReady) {
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    return;
+  }
+  // Single in-flight init: concurrent calls (e.g. two quick keydowns while the
+  // worklet module is still loading) must not build a second audio graph.
+  if (!audioInitPromise) audioInitPromise = initAudioGraph();
+  await audioInitPromise;
+}
+
+async function initAudioGraph() {
   audioCtx = new AudioContext();
   await audioCtx.resume();
   await audioCtx.audioWorklet.addModule('js/dx7-processor.js');
@@ -333,8 +343,8 @@ function loadPatch(i) {
   // Reset mod wheel visual
   const mwThumb = document.getElementById('mod-wheel-thumb');
   if (mwThumb) mwThumb.style.bottom = '0';
-  // Reset operator index to 0
-  currentOpIndex = 0;
+  // Reset operator selection to OP1 (ops[5] in Dexed order)
+  currentOpIndex = 5;
   currentPatch = JSON.parse(JSON.stringify(patches[i]));
   sendPatch();
   updateUI();
@@ -383,7 +393,7 @@ function updateUI() {
 function syncOpKnobs() {
   if (!currentPatch) return;
   const op = currentPatch.ops[currentOpIndex];
-  document.querySelectorAll('.op-tab').forEach((t, i) => t.classList.toggle('active', i === currentOpIndex));
+  document.querySelectorAll('.op-tab').forEach(t => t.classList.toggle('active', parseInt(t.dataset.op) === currentOpIndex));
   document.querySelectorAll('.op-knob').forEach(k => {
     const p = k.getAttribute('data-param');
     if (op[p] !== undefined) setKnobValue(k, op[p]);

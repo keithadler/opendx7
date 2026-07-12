@@ -325,7 +325,9 @@ class DX7GlobalLFO {
   setParams(speed, delay, wave, sync, pmd, amd) {
     this.freq = LFO_SPEED_TABLE[Math.min(99, Math.max(0, speed))];
     this.wave = wave; this.sync = sync;
-    this.delayTime = delay > 0 ? 0.008 * Math.pow(500, (99 - delay) / 99.0) : 0;
+    // Higher delay parameter = LONGER wait before the LFO fades in
+    // (0 = instant, 99 ≈ 4 s), matching the DX7 front panel.
+    this.delayTime = delay > 0 ? 0.008 * Math.pow(500, delay / 99.0) : 0;
     this.pmd = pmd; this.amd = amd;
   }
   noteOn() { if (this.sync) this.phase = 0; this.delayCounter = 0; }
@@ -343,10 +345,13 @@ class DX7GlobalLFO {
     }
     return (this.wave === 5 ? this.shValue : lfoWaveform(this.phase, this.wave)) * delayMul;
   }
-  getPitchMod(lfoVal, pitchModSens) {
-    if (this.pmd === 0 || pitchModSens === 0) return 0;
+  // extraDepth (0-1) adds LFO depth from performance controls
+  // (mod wheel, aftertouch) on top of the patch's own pitch mod depth.
+  getPitchMod(lfoVal, pitchModSens, extraDepth = 0) {
+    const depth = Math.min(1, this.pmd / 99.0 + extraDepth);
+    if (depth <= 0 || pitchModSens === 0) return 0;
     const PMS_SEMITONES = [0, 0.6, 1.2, 2.4, 6, 12, 24, 48];
-    return lfoVal * (this.pmd / 99.0) * PMS_SEMITONES[pitchModSens];
+    return lfoVal * depth * PMS_SEMITONES[pitchModSens];
   }
   // Returns a combined-level reduction for amplitude modulation
   // Higher value = quieter. Range 0 to ~800.
@@ -570,9 +575,13 @@ const FEEDBACK_SCALE = [];
   }
 })();
 
-// Feedback operator index per algorithm (0-based, derived from Dexed's algorithm table)
+// Feedback SOURCE operator index per algorithm (0-based): the op whose output
+// is written to the feedback buffer (Dexed's FB_OUT flag, 0x80). For most
+// algorithms this is the same op that reads the feedback (self-feedback), but
+// algorithms 4 and 6 loop a whole stack: OP4→OP6 and OP5→OP6 respectively
+// (ALGOS entries 0x94 at index 2 / index 1), so the source is not OP6 itself.
 const FEEDBACK_OP = [
-  0, 4, 0, 0, 0, 0, 0, 2,   // algos 1-8
+  0, 4, 0, 2, 0, 1, 0, 2,   // algos 1-8
   4, 3, 0, 4, 0, 0, 4, 0,   // algos 9-16
   4, 3, 0, 3, 3, 0, 0, 0,   // algos 17-24
   0, 0, 3, 1, 0, 1, 0, 0    // algos 25-32
@@ -785,13 +794,13 @@ class DX7Voice {
       this.currentPitch = this.note;
     }
 
-    // Pitch (computed once per block)
+    // Pitch (computed once per block).
+    // Mod wheel and aftertouch deepen the LFO's pitch modulation (vibrato),
+    // gated by pitch mod sensitivity — they must not statically detune the note.
     const pitchSemitones = this.pitchEnv.getsample();
-    const lfoPitch = lfo.getPitchMod(lfoVal, this.pitchModSens);
-    const atPitch = aftertouch * this.pitchModSens * 0.1;
-    const modPitch = modWheel * this.pitchModSens * 0.5;
+    const lfoPitch = lfo.getPitchMod(lfoVal, this.pitchModSens, modWheel + aftertouch);
     const transNote = this.currentPitch + (this.transpose - 24);
-    const totalPitch = transNote + pitchSemitones + lfoPitch + pitchBend + atPitch + modPitch;
+    const totalPitch = transNote + pitchSemitones + lfoPitch + pitchBend;
     const baseFreq = midiToFreq(totalPitch);
 
     const freqs = new Float64Array(6);
@@ -867,7 +876,7 @@ class DX7Processor extends AudioWorkletProcessor {
     );
     this.portamentoTime = patch.portamentoTime || 0;
     this.portamentoMode = patch.portamentoMode || 0;
-    this.pitchBendRange = patch.pitchBendRange || 2;
+    this.pitchBendRange = patch.pitchBendRange ?? 2; // 0 (no bend) is valid
   }
 
   _pitchBend(value) {
