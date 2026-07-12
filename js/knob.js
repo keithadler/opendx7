@@ -52,6 +52,10 @@ function renderKnob(el) {
 
 export function initKnobs() {
   document.querySelectorAll('.knob').forEach(el => {
+    // Capture the markup's initial value as the double-click reset target, so
+    // center-based knobs (detune 7, transpose 24, pitch EG levels 50, PB range 2)
+    // reset to their neutral position instead of their minimum.
+    if (el.dataset.default === undefined) el.dataset.default = el.dataset.value || '0';
     renderKnob(el);
     el.style.cursor = 'ns-resize';
     el.style.touchAction = 'none';
@@ -85,10 +89,9 @@ export function initKnobs() {
     el.addEventListener('pointerup', () => { dragging = false; });
     el.addEventListener('pointercancel', () => { dragging = false; });
 
-    // Double-click to reset to default (center or 0)
+    // Double-click to reset to the knob's default value
     el.addEventListener('dblclick', () => {
       const min = parseFloat(el.dataset.min) || 0;
-      const max = parseFloat(el.dataset.max) || 99;
       el.dataset.value = el.dataset.default !== undefined ? el.dataset.default : min;
       renderKnob(el);
       el.dispatchEvent(new Event('input', { bubbles: true }));

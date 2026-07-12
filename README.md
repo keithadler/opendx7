@@ -1,6 +1,6 @@
 # OpenDX7
 
-**Version 1.0**
+**Version 1.1**
 
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
@@ -68,7 +68,7 @@ js/knob.js          — SVG knob component
 js/env-display.js   — Envelope canvas renderer
 js/algo-display.js  — Algorithm diagram renderer
 css/style.css       — Styles
-test/               — Engine and patch test suites (835 tests)
+test/               — Engine and patch test suites (833 tests)
 ```
 
 ## Tests
@@ -76,8 +76,8 @@ test/               — Engine and patch test suites (835 tests)
 ```
 node test/operator-vs-dexed.js  # 9 Dexed reference comparison tests
 node test/dx7-engine-test.js    # 132 engine tests
-node test/algo-test.js          # 227 algorithm routing tests
-node test/patch-test.js         # 210 patch tests
+node test/algo-test.js          # 224 algorithm routing tests
+node test/patch-test.js         # 211 patch tests
 node test/sysex-test.js         # 229 SysEx roundtrip tests
 node test/e2e-test.js           # 28 end-to-end tests
 ```
@@ -89,6 +89,19 @@ node test/e2e-test.js           # 28 end-to-end tests
 - [ajxs DX7 technical analysis](https://ajxs.me/blog/Yamaha_DX7_Technical_Analysis.html)
 
 ## Changelog
+
+#### Version 1.1
+- Fixed 13 built-in patches whose operators sat at the wrong indices for their algorithm after the v1.0 operator-order migration — modulation chains were dead or carriers played at modulator levels (FM Bass, Synth Bass, FM Brass, Soft Brass, String Pad, Warm Strings, Flute Tone, Reed Pipe, Synth Lead, Bright Lead, Harpsichord, Choir Pad, Deep Sub Bass, Pluck Bass, Warm Pad, Sync Lead).
+- Fixed a stray full-level INIT sine that leaked into every built-in patch not explicitly configuring OP1.
+- Operator tabs now edit the operator they're labeled with (tab 1 edited OP6 due to the msfa/Dexed ops[] ordering).
+- SysEx export no longer corrupts zero-valued parameters (detune 0, coarse 0.5 ratio, transpose 0, pitch EG zeros); pitch bend range 0 is honored.
+- LFO delay direction corrected: higher values now wait longer before the LFO fades in, matching the DX7.
+- Algorithms 4 and 6 now use the DX7's loop feedback (OP4→OP6, OP5→OP6) instead of OP6 self-feedback.
+- Algorithm diagrams redrawn from the engine's routing table — 24 of 32 were wrong (carriers, chains, or feedback op).
+- Fixed a race where two quick notes during audio startup created a second AudioContext.
+- Double-click knob reset now returns center-based knobs (detune, transpose, pitch EG levels, PB range) to their defaults instead of zero.
+- Mod wheel and aftertouch now add vibrato (LFO pitch depth) instead of statically detuning the note.
+- Removed the donation link from the README.
 
 #### Version 1.0
 - Fixed SysEx operator ordering — loaded .SYX banks were mirror-imaged relative to their algorithm roles (carriers became modulators), producing near-noise. Import/export now use msfa/Dexed operator order to match the engine.
@@ -107,12 +120,6 @@ node test/e2e-test.js           # 28 end-to-end tests
 
 #### Version 0.1
 - Initial release
-
-## Donation
-
-If you enjoy OpenDX7, donations are welcome and help keep the project going. Thank you!
-
-https://www.paypal.com/paypalme/keithadler
 
 ## License
 

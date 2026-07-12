@@ -225,6 +225,10 @@ function mkPatch(name, algo, fb, ops, globals) {
   p.name = name;
   p.algorithm = algo;
   p.feedback = fb;
+  // createDefaultPatch() leaves OP1 (ops[5]) at output level 99 so INIT VOICE
+  // makes sound. Patches must opt in to every operator they use, otherwise a
+  // full-level INIT sine rides along with the sound.
+  p.ops[5].outputLevel = 0;
   for (let i = 0; i < 6; i++) if (ops[i]) setOp(p, i, ops[i]);
   if (globals) Object.assign(p, globals);
   return p;
@@ -511,14 +515,17 @@ export function generateFactoryPatches() {
       4: { r:[99,90,52,66], l:[99,58,0,0], out:72, coarse:1, vel:5, krs:4 },
       5: { r:[99,68,68,40], l:[99,95,90,0], out:85, coarse:1, detune:5 },
     }),
+    // Algo 1 chains: OP6→OP5→OP4→OP3(carrier), OP2→OP1(carrier), fb on OP6.
+    // ops[] is Dexed order (ops[5]=OP1), so the 2-op sounds live at 5 (carrier)
+    // and 4 (modulator); a third op at 3 is the second carrier.
     mkPatch('FM Bass', 0, 6, {
-      0: { r:[99,88,75,90], l:[99,70,0,0], out:88, coarse:1, vel:3 },
-      3: { r:[99,82,70,85], l:[99,95,85,0], out:99, coarse:1, vel:2 },
+      4: { r:[99,88,75,90], l:[99,70,0,0], out:88, coarse:1, vel:3 },
+      5: { r:[99,82,70,85], l:[99,95,85,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Synth Bass', 0, 7, {
-      0: { r:[99,86,72,88], l:[99,78,0,0], out:87, coarse:1, vel:4 },
-      1: { r:[99,90,78,92], l:[99,65,0,0], out:80, coarse:2, vel:3 },
-      3: { r:[99,80,68,82], l:[99,96,88,0], out:99, coarse:1, vel:2 },
+      3: { r:[99,90,78,92], l:[99,65,0,0], out:80, coarse:2, vel:3 },
+      4: { r:[99,86,72,88], l:[99,78,0,0], out:87, coarse:1, vel:4 },
+      5: { r:[99,80,68,82], l:[99,96,88,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Bright Bell', 4, 0, {
       0: { r:[99,62,42,50], l:[99,60,0,0], out:82, coarse:3, fine:50 },
@@ -536,37 +543,41 @@ export function generateFactoryPatches() {
       4: { r:[99,60,40,50], l:[99,55,15,0], out:72, coarse:4, fine:30 },
       5: { r:[99,34,18,26], l:[99,98,92,0], out:88, coarse:2 },
     }),
+    // Algo 22: OP2→OP1, OP6→OP3/OP4/OP5, carriers OP1,3,4,5 (ops 5,3,2,1),
+    // modulators OP2 (ops[4]) and OP6 (ops[0], feedback).
     mkPatch('FM Brass', 21, 7, {
-      0: { r:[62,50,50,60], l:[99,90,90,0], out:99, coarse:1 },
-      1: { r:[72,60,50,70], l:[99,80,70,0], out:80, coarse:1 },
-      2: { r:[62,50,50,60], l:[99,90,90,0], out:90, coarse:1 },
-      3: { r:[72,60,50,70], l:[99,80,70,0], out:75, coarse:1 },
-      4: { r:[62,50,50,60], l:[99,90,90,0], out:85, coarse:1 },
-      5: { r:[72,60,50,70], l:[99,80,70,0], out:70, coarse:1 },
+      0: { r:[72,60,50,70], l:[99,80,70,0], out:70, coarse:1 },
+      1: { r:[62,50,50,60], l:[99,90,90,0], out:85, coarse:1 },
+      2: { r:[62,50,50,60], l:[99,90,90,0], out:75, coarse:1 },
+      3: { r:[62,50,50,60], l:[99,90,90,0], out:90, coarse:1 },
+      4: { r:[72,60,50,70], l:[99,80,70,0], out:80, coarse:1 },
+      5: { r:[62,50,50,60], l:[99,90,90,0], out:99, coarse:1 },
     }),
     mkPatch('Soft Brass', 21, 5, {
-      0: { r:[55,45,45,55], l:[99,92,92,0], out:99, coarse:1 },
-      1: { r:[65,55,45,65], l:[99,75,65,0], out:72, coarse:1 },
-      2: { r:[55,45,45,55], l:[99,92,92,0], out:92, coarse:1, detune:8 },
-      3: { r:[65,55,45,65], l:[99,75,65,0], out:68, coarse:1 },
-      4: { r:[55,45,45,55], l:[99,92,92,0], out:88, coarse:1, detune:6 },
-      5: { r:[65,55,45,65], l:[99,75,65,0], out:65, coarse:1 },
+      0: { r:[65,55,45,65], l:[99,75,65,0], out:65, coarse:1 },
+      1: { r:[55,45,45,55], l:[99,92,92,0], out:88, coarse:1, detune:6 },
+      2: { r:[55,45,45,55], l:[99,92,92,0], out:68, coarse:1 },
+      3: { r:[55,45,45,55], l:[99,92,92,0], out:92, coarse:1, detune:8 },
+      4: { r:[65,55,45,65], l:[99,75,65,0], out:72, coarse:1 },
+      5: { r:[55,45,45,55], l:[99,92,92,0], out:99, coarse:1 },
     }),
+    // Algo 2: OP2→OP1(carrier, fb on OP2), OP6→OP5→OP4→OP3(carrier).
+    // Carriers OP1/OP3 are ops[5]/ops[3]; the deep-chain mods sit above OP3.
     mkPatch('String Pad', 1, 4, {
-      0: { r:[50,30,30,50], l:[99,95,95,0], out:99, coarse:1, detune:8 },
-      1: { r:[55,35,35,55], l:[99,80,80,0], out:70, coarse:1, detune:6 },
-      2: { r:[50,30,30,50], l:[99,95,95,0], out:90, coarse:1, detune:6 },
-      3: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      4: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      5: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
+      0: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
+      1: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
+      2: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
+      3: { r:[50,30,30,50], l:[99,95,95,0], out:90, coarse:1, detune:6 },
+      4: { r:[55,35,35,55], l:[99,80,80,0], out:70, coarse:1, detune:6 },
+      5: { r:[50,30,30,50], l:[99,95,95,0], out:99, coarse:1, detune:8 },
     }),
     mkPatch('Warm Strings', 1, 3, {
-      0: { r:[45,28,28,48], l:[99,96,96,0], out:99, coarse:1, detune:9 },
-      1: { r:[50,32,32,52], l:[99,82,82,0], out:65, coarse:1, detune:5 },
-      2: { r:[45,28,28,48], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      3: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:2 },
-      4: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
-      5: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
+      0: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
+      1: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
+      2: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:2 },
+      3: { r:[45,28,28,48], l:[99,96,96,0], out:92, coarse:1, detune:6 },
+      4: { r:[50,32,32,52], l:[99,82,82,0], out:65, coarse:1, detune:5 },
+      5: { r:[45,28,28,48], l:[99,96,96,0], out:99, coarse:1, detune:9 },
     }),
     mkPatch('Drawbar Organ', 31, 0, {
       0: { r:[99,99,99,99], l:[99,99,99,0], out:99, coarse:1 },
@@ -604,24 +615,24 @@ export function generateFactoryPatches() {
       3: { r:[99,25,12,40], l:[99,88,0,0], out:88, coarse:1, ams:2 },
     }, { lfoSpeed:45, lfoAmpModDepth:40, lfoWave:0 }),
     mkPatch('Flute Tone', 0, 3, {
-      0: { r:[75,50,45,60], l:[99,60,55,0], out:55, coarse:1 },
-      3: { r:[70,40,40,55], l:[99,92,92,0], out:99, coarse:1 },
+      4: { r:[75,50,45,60], l:[99,60,55,0], out:55, coarse:1 },
+      5: { r:[70,40,40,55], l:[99,92,92,0], out:99, coarse:1 },
     }, { lfoSpeed:38, lfoPitchModDepth:8, pitchModSens:3 }),
     mkPatch('Reed Pipe', 0, 5, {
-      0: { r:[70,48,42,62], l:[99,72,68,0], out:75, coarse:2 },
-      1: { r:[70,48,42,62], l:[99,65,60,0], out:60, coarse:3 },
-      3: { r:[65,42,42,58], l:[99,90,90,0], out:99, coarse:1 },
+      3: { r:[70,48,42,62], l:[99,65,60,0], out:60, coarse:3 },
+      4: { r:[70,48,42,62], l:[99,72,68,0], out:75, coarse:2 },
+      5: { r:[65,42,42,58], l:[99,90,90,0], out:99, coarse:1 },
     }),
     mkPatch('Synth Lead', 0, 7, {
-      0: { r:[85,60,50,70], l:[99,80,70,0], out:82, coarse:1 },
-      1: { r:[85,60,50,70], l:[99,75,65,0], out:70, coarse:2 },
-      3: { r:[80,50,50,65], l:[99,90,90,0], out:99, coarse:1 },
+      3: { r:[85,60,50,70], l:[99,75,65,0], out:70, coarse:2 },
+      4: { r:[85,60,50,70], l:[99,80,70,0], out:82, coarse:1 },
+      5: { r:[80,50,50,65], l:[99,90,90,0], out:99, coarse:1 },
     }),
     mkPatch('Bright Lead', 0, 7, {
-      0: { r:[88,62,52,72], l:[99,82,72,0], out:85, coarse:1 },
-      1: { r:[88,62,52,72], l:[99,78,68,0], out:78, coarse:3 },
       2: { r:[90,70,55,78], l:[99,70,55,0], out:65, coarse:5 },
-      3: { r:[85,55,55,68], l:[99,88,88,0], out:99, coarse:1, vel:2 },
+      3: { r:[88,62,52,72], l:[99,78,68,0], out:78, coarse:3 },
+      4: { r:[88,62,52,72], l:[99,82,72,0], out:85, coarse:1 },
+      5: { r:[85,55,55,68], l:[99,88,88,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Glass Pad', 4, 2, {
       0: { r:[50,30,28,50], l:[99,70,65,0], out:62, coarse:5 },
@@ -640,10 +651,10 @@ export function generateFactoryPatches() {
       5: { r:[40,22,22,42], l:[99,96,96,0], out:85, coarse:2, detune:5 },
     }, { lfoSpeed:32, lfoAmpModDepth:20, lfoWave:0 }),
     mkPatch('Harpsichord', 0, 6, {
-      0: { r:[99,82,55,88], l:[99,50,0,0], out:82, coarse:2 },
-      1: { r:[99,85,60,90], l:[99,45,0,0], out:72, coarse:3 },
       2: { r:[99,88,65,92], l:[99,40,0,0], out:65, coarse:4 },
-      3: { r:[99,75,45,82], l:[99,55,0,0], out:99, coarse:1, vel:4 },
+      3: { r:[99,85,60,90], l:[99,45,0,0], out:72, coarse:3 },
+      4: { r:[99,82,55,88], l:[99,50,0,0], out:82, coarse:2 },
+      5: { r:[99,75,45,82], l:[99,55,0,0], out:99, coarse:1, vel:4 },
     }),
     mkPatch('Clavinet', 4, 5, {
       0: { r:[99,80,50,85], l:[99,50,0,0], out:80, coarse:3 },
@@ -660,21 +671,21 @@ export function generateFactoryPatches() {
       5: { r:[99,78,48,83], l:[99,48,0,0], out:80, coarse:1 },
     }),
     mkPatch('Choir Pad', 1, 3, {
-      0: { r:[42,25,25,45], l:[99,96,96,0], out:99, coarse:1, detune:8 },
-      1: { r:[48,30,28,50], l:[99,72,68,0], out:58, coarse:1, detune:6 },
-      2: { r:[42,25,25,45], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      3: { r:[48,30,28,50], l:[99,68,62,0], out:52, coarse:2 },
-      4: { r:[48,30,28,50], l:[99,65,58,0], out:48, coarse:3 },
-      5: { r:[48,30,28,50], l:[99,60,52,0], out:42, coarse:4 },
+      0: { r:[48,30,28,50], l:[99,60,52,0], out:42, coarse:4 },
+      1: { r:[48,30,28,50], l:[99,65,58,0], out:48, coarse:3 },
+      2: { r:[48,30,28,50], l:[99,68,62,0], out:52, coarse:2 },
+      3: { r:[42,25,25,45], l:[99,96,96,0], out:92, coarse:1, detune:6 },
+      4: { r:[48,30,28,50], l:[99,72,68,0], out:58, coarse:1, detune:6 },
+      5: { r:[42,25,25,45], l:[99,96,96,0], out:99, coarse:1, detune:8 },
     }, { lfoSpeed:28, lfoPitchModDepth:5, pitchModSens:2 }),
     mkPatch('Deep Sub Bass', 0, 7, {
-      0: { r:[99,45,28,72], l:[99,75,0,0], out:88, coarse:1 },
-      3: { r:[99,35,20,65], l:[99,85,0,0], out:99, coarse:0 },
+      4: { r:[99,45,28,72], l:[99,75,0,0], out:88, coarse:1 },
+      5: { r:[99,35,20,65], l:[99,85,0,0], out:99, coarse:0 },
     }),
     mkPatch('Pluck Bass', 0, 5, {
-      0: { r:[99,75,45,82], l:[99,50,0,0], out:80, coarse:2 },
-      1: { r:[99,80,50,85], l:[99,45,0,0], out:68, coarse:3 },
-      3: { r:[99,65,35,78], l:[99,55,0,0], out:99, coarse:1, vel:4 },
+      3: { r:[99,80,50,85], l:[99,45,0,0], out:68, coarse:3 },
+      4: { r:[99,75,45,82], l:[99,50,0,0], out:80, coarse:2 },
+      5: { r:[99,65,35,78], l:[99,55,0,0], out:99, coarse:1, vel:4 },
     }),
     mkPatch('Crystal Keys', 4, 1, {
       0: { r:[96,45,30,70], l:[99,60,0,0], out:65, coarse:4 },
@@ -685,19 +696,20 @@ export function generateFactoryPatches() {
       5: { r:[97,25,15,50], l:[99,85,0,0], out:78, coarse:2 },
     }),
     mkPatch('Warm Pad', 1, 2, {
-      0: { r:[38,20,20,40], l:[99,97,97,0], out:99, coarse:1, detune:8 },
-      1: { r:[42,25,22,45], l:[99,75,72,0], out:55, coarse:1, detune:6 },
-      2: { r:[38,20,20,40], l:[99,97,97,0], out:94, coarse:1, detune:6 },
-      3: { r:[42,25,22,45], l:[99,70,65,0], out:48, coarse:2 },
-      4: { r:[42,25,22,45], l:[99,65,58,0], out:42, coarse:1 },
-      5: { r:[42,25,22,45], l:[99,60,52,0], out:38, coarse:1 },
+      0: { r:[42,25,22,45], l:[99,60,52,0], out:38, coarse:1 },
+      1: { r:[42,25,22,45], l:[99,65,58,0], out:42, coarse:1 },
+      2: { r:[42,25,22,45], l:[99,70,65,0], out:48, coarse:2 },
+      3: { r:[38,20,20,40], l:[99,97,97,0], out:94, coarse:1, detune:6 },
+      4: { r:[42,25,22,45], l:[99,75,72,0], out:55, coarse:1, detune:6 },
+      5: { r:[38,20,20,40], l:[99,97,97,0], out:99, coarse:1, detune:8 },
     }),
     mkPatch('Sync Lead', 0, 7, {
-      0: { r:[90,65,55,75], l:[99,84,74,0], out:88, coarse:1 },
-      1: { r:[90,65,55,75], l:[99,80,70,0], out:80, coarse:2 },
+      0: { r:[94,75,60,80], l:[99,65,48,0], out:55, coarse:7 },
+      1: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5 },
       2: { r:[92,70,58,78], l:[99,75,62,0], out:72, coarse:3 },
-      3: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1 },
-      4: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5 },
+      3: { r:[90,65,55,75], l:[99,80,70,0], out:80, coarse:2 },
+      4: { r:[90,65,55,75], l:[99,84,74,0], out:88, coarse:1 },
+      5: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1 },
     }, { oscSync:true }),
     // INIT voice: algo 1 with OP1 (ops[5]) as the sole carrier — the default patch.
     createDefaultPatch(),
