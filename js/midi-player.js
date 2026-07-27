@@ -3,9 +3,10 @@
 // Minimal Standard MIDI File player
 
 export class MidiPlayer {
-  constructor(noteOn, noteOff) {
+  constructor(noteOn, noteOff, onCC) {
     this.noteOn = noteOn;   // (note, velocity) => void
     this.noteOff = noteOff; // (note) => void
+    this.onCC = onCC;       // optional (cc, value) => void — sustain etc.
     this.playing = false;
     this.events = [];
     this._timeout = null;
@@ -31,8 +32,9 @@ export class MidiPlayer {
   stop() {
     this.playing = false;
     if (this._timeout) { clearTimeout(this._timeout); this._timeout = null; }
-    // All notes off
+    // All notes off, pedal up
     for (let n = 0; n < 128; n++) this.noteOff(n);
+    if (this.onCC) this.onCC(64, 0);
   }
 
   _scheduleNext() {
@@ -48,6 +50,7 @@ export class MidiPlayer {
       if (!this.playing) return;
       if (evt.type === 'noteOn') this.noteOn(evt.note, evt.velocity);
       else if (evt.type === 'noteOff') this.noteOff(evt.note);
+      else if (evt.type === 'cc' && this.onCC) this.onCC(evt.cc, evt.value);
       this._idx++;
       this._scheduleNext();
     }, delay);
@@ -115,7 +118,11 @@ function parseMidi(data) {
         const note = data[pos++];
         pos++; // velocity (ignored)
         if (ch !== 9) allEvents.push({ tick, type: 'noteOff', note, ch });
-      } else if (cmd === 0xA0 || cmd === 0xB0 || cmd === 0xE0) {
+      } else if (cmd === 0xB0) { // Control Change — keep sustain, skip the rest
+        const cc = data[pos++];
+        const value = data[pos++];
+        if (cc === 64 && ch !== 9) allEvents.push({ tick, type: 'cc', cc, value, ch });
+      } else if (cmd === 0xA0 || cmd === 0xE0) {
         pos += 2; // skip 2-byte messages
       } else if (cmd === 0xC0 || cmd === 0xD0) {
         pos += 1; // skip 1-byte messages
