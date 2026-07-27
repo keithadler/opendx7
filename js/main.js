@@ -5,6 +5,8 @@ import { drawAlgorithm } from './algo-display.js';
 import { drawEnvelope, drawPitchEnvelope } from './env-display.js';
 import { initKnobs, setKnobValue } from './knob.js';
 import { MidiPlayer } from './midi-player.js';
+import { setAudioLevel } from './ui-fx.js';
+import { activeNotes, recordNoteOn, updateChordDisplay, clearHarmonyState } from './chord-detect.js';
 
 // Export a single patch as a minimal SysEx file (single voice dump)
 function exportPatchAsSyx(patch) {
@@ -173,6 +175,9 @@ async function initAudioGraph() {
   limiter.connect(analyser);
   analyser.connect(audioCtx.destination);
 
+  // debug/verification handle
+  window.__opendx7 = { get ctx() { return audioCtx; }, get node() { return dx7Node; } };
+
   // Dry path
   dryGain = audioCtx.createGain();
   dryGain.gain.value = 1.0;
@@ -326,6 +331,7 @@ function startViz() {
       rmsSum += analyserData[i] * analyserData[i];
     }
     const rmsVal = Math.sqrt(rmsSum / analyserData.length);
+    setAudioLevel(rmsVal);
     const pkDb = pk > 0.0001 ? 20 * Math.log10(pk) : -Infinity;
     const rmsDb = rmsVal > 0.0001 ? 20 * Math.log10(rmsVal) : -Infinity;
 
@@ -532,323 +538,8 @@ async function onMIDI(msg) {
 }
 
 // ============================================================
-// Chord & Key Detection
+// Chord & Key Detection - shared module (see js/chord-detect.js)
 // ============================================================
-const NOTE_NAMES = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
-const activeNotes = new Set();
-const recentChords = [];
-let lastNoteTime = 0;
-let idleTimer = null;
-const IDLE_CLEAR_SEC = 8;
-
-// Rolling history of every note played (MIDI note + timestamp)
-const noteHistory = [];
-const KEY_HISTORY_SEC = 30; // look back 30 seconds
-
-const CHORD_TYPES = [
-  { name:'',     intervals:[0,4,7],    w:1.0 },
-  { name:'m',    intervals:[0,3,7],    w:1.0 },
-  { name:'7',    intervals:[0,4,7,10], w:0.95 },
-  { name:'m7',   intervals:[0,3,7,10], w:0.95 },
-  { name:'maj7', intervals:[0,4,7,11], w:0.95 },
-  { name:'dim',  intervals:[0,3,6],    w:0.9 },
-  { name:'aug',  intervals:[0,4,8],    w:0.9 },
-  { name:'sus4', intervals:[0,5,7],    w:0.85 },
-  { name:'sus2', intervals:[0,2,7],    w:0.85 },
-  { name:'6',    intervals:[0,4,7,9],  w:0.9 },
-  { name:'m6',   intervals:[0,3,7,9],  w:0.9 },
-  { name:'9',    intervals:[0,4,7,10,14], w:0.85 },
-  { name:'add9', intervals:[0,4,7,14], w:0.85 },
-  { name:'dim7', intervals:[0,3,6,9],  w:0.9 },
-  { name:'m7♭5', intervals:[0,3,6,10], w:0.9 },
-  { name:'5',    intervals:[0,7],      w:0.7 },
-];
-
-// Krumhansl-Kessler key profiles
-const MAJOR_PROFILE = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
-const MINOR_PROFILE = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
-
-function recordNoteOn(midiNote) {
-  noteHistory.push({ pc: midiNote % 12, note: midiNote, time: Date.now() });
-  const cutoff = Date.now() - KEY_HISTORY_SEC * 1000;
-  while (noteHistory.length > 0 && noteHistory[0].time < cutoff) noteHistory.shift();
-
-  // Reset idle timer
-  lastNoteTime = Date.now();
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(clearHarmonyState, IDLE_CLEAR_SEC * 1000);
-}
-
-function clearHarmonyState() {
-  recentChords.length = 0;
-  noteHistory.length = 0;
-  currentKey = null;
-  keyConfidence = 0;
-  keySwitchCounter = 0;
-  pendingKey = null;
-  const keyEl = document.getElementById('key-value');
-  const chordEl = document.getElementById('chord-display');
-  if (keyEl) keyEl.textContent = '—';
-  if (chordEl) chordEl.textContent = '—';
-}
-
-function detectChord(notes) {
-  if (notes.length < 2) return null;
-  const sorted = [...notes].sort((a, b) => a - b);
-  const bass = sorted[0] % 12;
-  const pcs = [...new Set(sorted.map(n => n % 12))].sort((a, b) => a - b);
-  if (pcs.length < 2) return null;
-
-  let bestMatch = null, bestScore = -1;
-
-  // Try each pitch class as root, but prefer the bass note
-  for (const root of pcs) {
-    const intervals = pcs.map(p => (p - root + 12) % 12).sort((a, b) => a - b);
-    for (const ct of CHORD_TYPES) {
-      let matched = 0;
-      for (const iv of ct.intervals) {
-        if (intervals.includes(iv % 12)) matched++;
-      }
-      const coverage = matched / ct.intervals.length;
-      const extras = pcs.length - matched;
-      let score = coverage * ct.w - extras * 0.15;
-      // Bonus if root is the bass note (strong voicing indicator)
-      if (root === bass) score += 0.15;
-      // Bonus for more complete chords
-      if (matched === ct.intervals.length) score += 0.1;
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = { root: NOTE_NAMES[root], type: ct.name, score };
-      }
-    }
-  }
-  return bestMatch && bestMatch.score > 0.45 ? bestMatch : null;
-}
-
-function pearsonCorrelation(x, y) {
-  const n = x.length;
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += x[i]; sumY += y[i];
-    sumXY += x[i] * y[i];
-    sumX2 += x[i] * x[i]; sumY2 += y[i] * y[i];
-  }
-  const num = n * sumXY - sumX * sumY;
-  const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-  return den === 0 ? 0 : num / den;
-}
-
-// Key detection state — hysteresis prevents flipping on passing chords
-let currentKey = null;
-let keyConfidence = 0;
-let keySwitchCounter = 0;
-let pendingKey = null;
-const KEY_SWITCH_THRESHOLD = 3;
-const KEY_HYSTERESIS = 0.06;
-
-function detectKey() {
-  if (noteHistory.length < 3) return currentKey;
-
-  const now = Date.now();
-  const pcHist = new Float64Array(12);
-
-  for (const entry of noteHistory) {
-    const age = (now - entry.time) / 1000;
-    const weight = Math.exp(-age / 15);
-    pcHist[entry.pc] += weight;
-    if (entry.note < 60) pcHist[entry.pc] += weight * 0.5;
-  }
-
-  for (const n of activeNotes) {
-    pcHist[n % 12] += 2.0;
-  }
-
-  if (pcHist.every(v => v === 0)) return currentKey;
-
-  // Score all 24 keys
-  const scores = [];
-  for (let root = 0; root < 12; root++) {
-    const rotated = new Float64Array(12);
-    for (let i = 0; i < 12; i++) rotated[i] = pcHist[(root + i) % 12];
-    scores.push({ name: NOTE_NAMES[root] + ' major', corr: pearsonCorrelation(rotated, MAJOR_PROFILE) });
-    scores.push({ name: NOTE_NAMES[root] + ' minor', corr: pearsonCorrelation(rotated, MINOR_PROFILE) });
-  }
-  scores.sort((a, b) => b.corr - a.corr);
-
-  const best = scores[0];
-  if (best.corr < 0.3) return currentKey;
-
-  // No key yet — accept immediately
-  if (!currentKey) {
-    currentKey = best.name;
-    keyConfidence = 0.5;
-    return currentKey;
-  }
-
-  // Re-evaluate current key's correlation against the CURRENT histogram
-  const currentCorr = scores.find(s => s.name === currentKey)?.corr ?? 0;
-
-  // Same key still winning — reinforce
-  if (best.name === currentKey) {
-    keyConfidence = Math.min(1.0, keyConfidence + 0.05);
-    keySwitchCounter = 0;
-    pendingKey = null;
-    return currentKey;
-  }
-
-  // Different key winning — needs to beat current by margin
-  const margin = best.corr - currentCorr;
-  if (margin > KEY_HYSTERESIS) {
-    if (best.name === pendingKey) {
-      keySwitchCounter++;
-    } else {
-      pendingKey = best.name;
-      keySwitchCounter = 1;
-    }
-    if (keySwitchCounter >= KEY_SWITCH_THRESHOLD) {
-      currentKey = best.name;
-      keyConfidence = 0.4;
-      keySwitchCounter = 0;
-      pendingKey = null;
-    }
-  } else {
-    keySwitchCounter = Math.max(0, keySwitchCounter - 1);
-    if (keySwitchCounter === 0) pendingKey = null;
-  }
-
-  return currentKey;
-}
-
-// ── Next chord suggestions based on common progressions ──
-function suggestNextChords(keyName, currentChord) {
-  if (!keyName || !currentChord) return [];
-
-  const parts = keyName.split(' ');
-  const keyRoot = parts[0];
-  const isMinor = parts[1] === 'minor';
-  const rootIdx = NOTE_NAMES.indexOf(keyRoot);
-  if (rootIdx < 0) return [];
-
-  // Scale degrees for major and minor keys (semitone offsets)
-  // Major: I ii iii IV V vi vii°
-  // Minor: i ii° III iv v VI VII
-  const majorDegrees = [0, 2, 4, 5, 7, 9, 11];
-  const minorDegrees = [0, 2, 3, 5, 7, 8, 10];
-  const majorQualities = ['', 'm', 'm', '', '', 'm', 'dim'];
-  const minorQualities = ['m', 'dim', '', 'm', 'm', '', ''];
-
-  const degrees = isMinor ? minorDegrees : majorDegrees;
-  const qualities = isMinor ? minorQualities : majorQualities;
-
-  // Build diatonic chords for this key
-  const diatonic = degrees.map((d, i) => ({
-    name: NOTE_NAMES[(rootIdx + d) % 12] + qualities[i],
-    degree: i // 0-based scale degree
-  }));
-
-  // Common chord progressions (by scale degree, 0-based)
-  // Maps current degree → likely next degrees (ordered by probability)
-  const majorTransitions = {
-    0: [3, 4, 5],   // I → IV, V, vi
-    1: [4, 3, 0],   // ii → V, IV, I
-    2: [5, 3, 1],   // iii → vi, IV, ii
-    3: [4, 0, 1],   // IV → V, I, ii
-    4: [0, 5, 3],   // V → I, vi, IV
-    5: [3, 1, 4],   // vi → IV, ii, V
-    6: [0, 5, 3],   // vii° → I, vi, IV
-  };
-  const minorTransitions = {
-    0: [3, 4, 6],   // i → iv, v, VII
-    1: [4, 0, 6],   // ii° → v, i, VII
-    2: [5, 3, 0],   // III → VI, iv, i
-    3: [4, 0, 6],   // iv → v, i, VII
-    4: [0, 5, 3],   // v → i, VI, iv
-    5: [3, 6, 4],   // VI → iv, VII, v
-    6: [0, 5, 3],   // VII → i, VI, iv
-  };
-
-  const transitions = isMinor ? minorTransitions : majorTransitions;
-
-  // Find current chord's scale degree
-  if (!currentChord) return diatonic.slice(0, 3).map(c => c.name);
-
-  const chordStr = currentChord.root + currentChord.type;
-  let currentDegree = -1;
-  for (let i = 0; i < diatonic.length; i++) {
-    if (diatonic[i].name === chordStr) { currentDegree = i; break; }
-  }
-
-  // If current chord isn't diatonic, suggest tonic, IV, V
-  if (currentDegree < 0) {
-    return [diatonic[0].name, diatonic[3].name, diatonic[4].name];
-  }
-
-  const nextDegrees = transitions[currentDegree] || [0, 3, 4];
-  return nextDegrees.map(d => diatonic[d].name);
-}
-
-function updateChordDisplay() {
-  const notes = [...activeNotes].sort((a, b) => a - b);
-  const chordEl = document.getElementById('chord-display');
-  const notesEl = document.getElementById('chord-notes');
-  const keyEl = document.getElementById('key-value');
-  const recentEl = document.getElementById('recent-chords');
-
-  if (notes.length === 0) {
-    if (chordEl) chordEl.textContent = '—';
-    if (notesEl) notesEl.innerHTML = '&nbsp;';
-    const key = detectKey();
-    if (keyEl && key) keyEl.textContent = key;
-    return;
-  }
-
-  // Show note names with octave
-  const noteNames = notes.map(n => NOTE_NAMES[n % 12] + Math.floor(n / 12 - 1));
-  if (notesEl) notesEl.textContent = noteNames.join(' · ');
-
-  // Detect chord or show note
-  const chord = detectChord(notes);
-  if (chord) {
-    const chordStr = chord.root + chord.type;
-    if (chordEl) chordEl.textContent = chordStr;
-    if (recentChords.length === 0 || recentChords[recentChords.length - 1].str !== chordStr) {
-      recentChords.push({ root: chord.root, type: chord.type, str: chordStr });
-      if (recentChords.length > 16) recentChords.shift();
-    }
-  } else if (notes.length === 1) {
-    const noteName = noteNames[0];
-    if (chordEl) chordEl.textContent = noteName;
-    // Add single notes to recent too
-    if (recentChords.length === 0 || recentChords[recentChords.length - 1].str !== noteName) {
-      recentChords.push({ root: NOTE_NAMES[notes[0] % 12], type: '', str: noteName });
-      if (recentChords.length > 16) recentChords.shift();
-    }
-  } else {
-    const label = noteNames.map(n => n.replace(/\d+/, '')).join('/');
-    if (chordEl) chordEl.textContent = label;
-  }
-
-  // Update key detection
-  const key = detectKey();
-  if (keyEl) keyEl.textContent = key || '—';
-
-  // Suggest next chords based on key and current chord
-  const suggestions = suggestNextChords(key, chord);
-  const nextEl = document.getElementById('next-chords');
-  if (nextEl && suggestions.length > 0) {
-    const colors = ['#4f4', '#ee4', '#f64'];
-    nextEl.innerHTML = suggestions.map((s, i) =>
-      `<span class="next-chord" style="color:${colors[i]}">${s}</span>`
-    ).join('');
-  }
-
-  // Update recent display
-  if (recentEl) {
-    recentEl.innerHTML = recentChords.slice(-8).map(c =>
-      `<span class="recent-chord">${c.str}</span>`
-    ).join('');
-  }
-}
 
 // ============================================================
 // Pitch Bend & Mod Wheel (on-screen)
