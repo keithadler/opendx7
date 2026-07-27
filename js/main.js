@@ -1189,7 +1189,16 @@ function setup() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updatePatchSelect();
-  loadExternalRom1A(); // async; swaps in the real cartridge when it arrives
+  // Load the real cartridge if reachable, then default to the E.Piano
+  // unless the user already picked a sound while the bank was loading.
+  loadExternalRom1A().then(() => {
+    if (currentPatch === null) {
+      const idx = findPatchIndex(['E.PIANO 1', 'Elec Piano 1']);
+      const sel = document.getElementById('patch-select');
+      if (sel) sel.value = idx;
+      loadPatch(idx);
+    }
+  });
 
   // Idle visualizer
   const wC = document.getElementById('waveform-canvas');
