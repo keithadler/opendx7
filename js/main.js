@@ -87,6 +87,44 @@ let audioReady = false;
 let patches = generateFactoryPatches();
 let currentPatch = null; // No sound until user selects one
 
+// External ROM1A cartridge: try the webdx7 preset location first, then the
+// dx7-synth-js copy. If neither loads, the built-in factory bank above stays.
+const ROM1A_URLS = [
+  'https://raw.githubusercontent.com/webaudiomodules/webdx7/master/dist/dx7/presets/rom1A.syx',
+  'https://raw.githubusercontent.com/mmontag/dx7-synth-js/master/roms/ROM1A.SYX',
+];
+
+async function loadExternalRom1A() {
+  for (const url of ROM1A_URLS) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+      const data = new Uint8Array(await resp.arrayBuffer());
+      if (data.length !== 4104) continue;
+      const bank = parseSyxBank(data);
+      if (bank.length === 32) {
+        patches = bank;
+        updatePatchSelect();
+        console.log('[opendx7] Loaded DX7 ROM1A cartridge from', url);
+        return true;
+      }
+    } catch { /* try next source */ }
+  }
+  console.log('[opendx7] External ROM1A unavailable, using built-in bank');
+  return false;
+}
+
+// Find a patch by name, first match wins. Names are normalized so
+// "E.PIANO 1" matches ROM1A's padded "E.PIANO 1 " form.
+function findPatchIndex(names) {
+  const norm = (s) => s.toUpperCase().replace(/\s+/g, ' ').trim();
+  for (const want of names) {
+    const i = patches.findIndex((p) => norm(p.name) === norm(want));
+    if (i >= 0) return i;
+  }
+  return 0;
+}
+
 const fxState = { reverbMix:30, reverbDecay:28, delayMix:20, delayTime:340, delayFeedback:35 };
 
 // ============================================================
@@ -969,15 +1007,18 @@ function setup() {
   // Demo MIDI player
   const midiPlayer = new MidiPlayer(
     (note, vel) => { noteOn(note, vel); const kbd = document.getElementById('keyboard'); if (kbd?.setNote) kbd.setNote(1, note); },
-    (note) => { noteOff(note); const kbd = document.getElementById('keyboard'); if (kbd?.setNote) kbd.setNote(0, note); }
+    (note) => { noteOff(note); const kbd = document.getElementById('keyboard'); if (kbd?.setNote) kbd.setNote(0, note); },
+    (cc, value) => { if (cc === 64 && dx7Node) dx7Node.port.postMessage({ type: 'sustain', value: value >= 64 }); }
   );
   document.getElementById('demo-select')?.addEventListener('change', async function() {
     midiPlayer.stop();
     if (!this.value) return;
-    // Select Crystal Keys (index 28) for demos
+    // Each demo names the patch it wants (ROM1A name first, built-in fallback)
+    const names = (this.selectedOptions[0]?.dataset.patch || 'E.PIANO 1,Crystal Keys').split(',');
+    const idx = findPatchIndex(names);
     const sel = document.getElementById('patch-select');
-    if (sel) { sel.value = 28; }
-    loadPatch(28);
+    if (sel) { sel.value = idx; }
+    loadPatch(idx);
     await ensureAudio();
     await midiPlayer.loadUrl(this.value);
     midiPlayer.play();
@@ -1148,6 +1189,7 @@ function setup() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updatePatchSelect();
+  loadExternalRom1A(); // async; swaps in the real cartridge when it arrives
 
   // Idle visualizer
   const wC = document.getElementById('waveform-canvas');
