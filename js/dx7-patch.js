@@ -238,480 +238,250 @@ function mkPatch(name, algo, fb, ops, globals) {
 // Built-in Bank — 32 patches with generic names
 // All parameter values are original clean-room designs (not copies of DX7 ROM patches).
 // ============================================================
-export function generateFactoryPatchesOLD() {
-  return [
-    // 01 Electric Piano 1 — Classic FM e-piano (the iconic DX7 sound)
-    // Algorithm 5: three carrier+modulator pairs (2→1, 4→3, 6→5)
-    // Character: warm body, bright "tine" attack that decays into a mellow sustain.
-    // Modulators at 1:1 ratio decay fast (the "bark"), carriers sustain longer.
-    // Velocity controls modulator depth = harder hits are brighter.
-    // Slight detuning between pairs creates natural chorus/width.
-    mkPatch('Elec Piano 1', 4, 0, {
-      // Pair 1: main body (carrier 1 + modulator 2)
-      0: { r:[96,72,72,42], l:[99,96,93,0], out:99, coarse:1, detune:7, vel:2, krs:3,
-           bp:39, ld:0, rd:20, lc:0, rc:3 },
-      1: { r:[96,90,60,72], l:[99,50,0,0], out:79, coarse:1, detune:7, vel:5, krs:4 },
-      // Pair 2: slightly detuned for chorus (carrier 3 + modulator 4)
-      2: { r:[96,72,72,42], l:[99,96,93,0], out:92, coarse:1, detune:10 },
-      3: { r:[96,92,62,74], l:[99,48,0,0], out:76, coarse:1, detune:7, vel:5, krs:4 },
-      // Pair 3: opposite detune for stereo width (carrier 5 + modulator 6)
-      4: { r:[96,72,72,42], l:[99,96,93,0], out:88, coarse:1, detune:4 },
-      5: { r:[96,88,58,70], l:[99,52,0,0], out:74, coarse:1, detune:7, vel:4, krs:4 },
-    }),
-    // 02 Electric Piano 2 — Brighter, more bell-like, Wurlitzer character
-    // Same algorithm but modulators at higher ratios for more harmonics,
-    // and a sharper attack transient.
-    mkPatch('Elec Piano 2', 4, 0, {
-      0: { r:[99,68,68,40], l:[99,95,90,0], out:99, coarse:1, detune:7, vel:3, krs:3,
-           bp:39, ld:0, rd:25, lc:0, rc:3 },
-      1: { r:[99,92,55,68], l:[99,55,0,0], out:82, coarse:1, fine:0, detune:7, vel:6, krs:4 },
-      2: { r:[99,68,68,40], l:[99,95,90,0], out:90, coarse:1, detune:9 },
-      3: { r:[99,94,58,70], l:[99,50,0,0], out:78, coarse:14, fine:0, detune:7, vel:6, krs:3 },
-      4: { r:[99,68,68,40], l:[99,95,90,0], out:85, coarse:1, detune:5 },
-      5: { r:[99,90,52,66], l:[99,58,0,0], out:72, coarse:1, fine:0, detune:7, vel:5, krs:4 },
-    }),
-    // 03 FM Bass — Punchy, round
-    mkPatch('FM Bass', 0, 6, {
-      0: { r:[99,82,70,85], l:[99,95,85,0], out:99, coarse:1, vel:2 },
-      1: { r:[99,88,75,90], l:[99,70,0,0], out:88, coarse:1, vel:3 },
-    }),
-    // 04 Synth Bass — Fatter with harmonics
-    mkPatch('Synth Bass', 0, 7, {
-      0: { r:[99,80,68,82], l:[99,96,88,0], out:99, coarse:1, vel:2 },
-      1: { r:[99,86,72,88], l:[99,78,0,0], out:87, coarse:1, vel:4 },
-      2: { r:[99,90,78,92], l:[99,65,0,0], out:80, coarse:2, vel:3 },
-    }),
-    // 05 Bright Bell
-    mkPatch('Bright Bell', 4, 0, {
-      0: { r:[99,50,35,40], l:[99,95,80,0], out:99, coarse:1 },
-      1: { r:[99,62,42,50], l:[99,60,0,0], out:82, coarse:3, fine:50 },
-      2: { r:[99,48,33,38], l:[99,96,82,0], out:93, coarse:1 },
-      3: { r:[99,66,46,54], l:[99,55,0,0], out:78, coarse:5, fine:25 },
-      4: { r:[99,45,30,35], l:[99,97,84,0], out:88, coarse:1 },
-      5: { r:[99,70,50,58], l:[99,50,0,0], out:72, coarse:7, fine:75 },
-    }),
-    // 06 Tubular Bell
-    mkPatch('Tubular Bell', 4, 2, {
-      0: { r:[99,38,22,30], l:[99,97,88,0], out:99, coarse:1 },
-      1: { r:[99,52,32,42], l:[99,65,25,0], out:80, coarse:3, fine:52 },
-      2: { r:[99,36,20,28], l:[99,97,90,0], out:94, coarse:1 },
-      3: { r:[99,56,36,46], l:[99,60,20,0], out:76, coarse:7, fine:10 },
-      4: { r:[99,34,18,26], l:[99,98,92,0], out:88, coarse:2 },
-      5: { r:[99,60,40,50], l:[99,55,15,0], out:72, coarse:4, fine:30 },
-    }),
-    // 07 FM Brass
-    mkPatch('FM Brass', 21, 7, {
-      0: { r:[62,50,50,60], l:[99,90,90,0], out:99, coarse:1 },
-      1: { r:[72,60,50,70], l:[99,80,70,0], out:80, coarse:1 },
-      2: { r:[62,50,50,60], l:[99,90,90,0], out:90, coarse:1 },
-      3: { r:[72,60,50,70], l:[99,80,70,0], out:75, coarse:1 },
-      4: { r:[62,50,50,60], l:[99,90,90,0], out:85, coarse:1 },
-      5: { r:[72,60,50,70], l:[99,80,70,0], out:70, coarse:1 },
-    }),
-    // 08 Soft Brass
-    mkPatch('Soft Brass', 21, 5, {
-      0: { r:[55,45,45,55], l:[99,92,92,0], out:99, coarse:1 },
-      1: { r:[65,55,45,65], l:[99,75,65,0], out:72, coarse:1 },
-      2: { r:[55,45,45,55], l:[99,92,92,0], out:92, coarse:1, detune:8 },
-      3: { r:[65,55,45,65], l:[99,75,65,0], out:68, coarse:1 },
-      4: { r:[55,45,45,55], l:[99,92,92,0], out:88, coarse:1, detune:6 },
-      5: { r:[65,55,45,65], l:[99,75,65,0], out:65, coarse:1 },
-    }),
-    // 09 String Pad
-    mkPatch('String Pad', 1, 4, {
-      0: { r:[50,30,30,50], l:[99,95,95,0], out:99, coarse:1, detune:8 },
-      1: { r:[55,35,35,55], l:[99,80,80,0], out:70, coarse:1, detune:6 },
-      2: { r:[50,30,30,50], l:[99,95,95,0], out:90, coarse:1, detune:6 },
-      3: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      4: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      5: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-    }),
-    // 10 Warm Strings
-    mkPatch('Warm Strings', 1, 3, {
-      0: { r:[45,28,28,48], l:[99,96,96,0], out:99, coarse:1, detune:9 },
-      1: { r:[50,32,32,52], l:[99,82,82,0], out:65, coarse:1, detune:5 },
-      2: { r:[45,28,28,48], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      3: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:2 },
-      4: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
-      5: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
-    }),
-    // 11 Drawbar Organ
-    mkPatch('Drawbar Organ', 31, 0, {
-      0: { r:[99,99,99,99], l:[99,99,99,0], out:99, coarse:1 },
-      1: { r:[99,99,99,99], l:[99,99,99,0], out:90, coarse:2 },
-      2: { r:[99,99,99,99], l:[99,99,99,0], out:85, coarse:3 },
-      3: { r:[99,99,99,99], l:[99,99,99,0], out:80, coarse:4 },
-      4: { r:[99,99,99,99], l:[99,99,99,0], out:75, coarse:6 },
-      5: { r:[99,99,99,99], l:[99,99,99,0], out:70, coarse:8 },
-    }),
-    // 12 Perc Organ
-    mkPatch('Perc Organ', 31, 2, {
-      0: { r:[99,99,99,99], l:[99,99,99,0], out:99, coarse:1 },
-      1: { r:[99,99,99,99], l:[99,99,99,0], out:88, coarse:2 },
-      2: { r:[99,70,50,80], l:[99,60,0,0], out:78, coarse:3 },
-      3: { r:[99,99,99,99], l:[99,99,99,0], out:82, coarse:4 },
-      4: { r:[99,80,60,85], l:[99,50,0,0], out:70, coarse:6 },
-      5: { r:[99,99,99,99], l:[99,99,99,0], out:65, coarse:8 },
-    }),
-    // 13 Pluck Key
-    mkPatch('Pluck Key', 4, 5, {
-      0: { r:[99,70,40,80], l:[99,60,0,0], out:99, coarse:2, vel:5 },
-      1: { r:[99,80,50,85], l:[99,50,0,0], out:80, coarse:3 },
-    }),
-    // 14 Mallet Hit
-    mkPatch('Mallet Hit', 4, 0, {
-      0: { r:[99,60,30,75], l:[99,50,0,0], out:99, coarse:1 },
-      1: { r:[99,85,60,90], l:[99,30,0,0], out:70, coarse:4 },
-    }),
-    // 15 Soft Mallet
-    mkPatch('Soft Mallet', 4, 0, {
-      0: { r:[99,35,20,50], l:[99,80,0,0], out:99, coarse:1 },
-      1: { r:[99,70,40,80], l:[99,40,0,0], out:60, coarse:3 },
-      2: { r:[99,35,20,50], l:[99,80,0,0], out:85, coarse:1 },
-    }, { lfoSpeed:40, lfoAmpModDepth:30 }),
-    // 16 Tremolo Bell
-    mkPatch('Tremolo Bell', 4, 1, {
-      0: { r:[99,25,12,40], l:[99,88,0,0], out:99, coarse:1, ams:2 },
-      1: { r:[99,60,30,70], l:[99,55,0,0], out:68, coarse:5 },
-      2: { r:[99,25,12,40], l:[99,88,0,0], out:88, coarse:1, ams:2 },
-      3: { r:[99,65,35,72], l:[99,50,0,0], out:62, coarse:8 },
-    }, { lfoSpeed:45, lfoAmpModDepth:40, lfoWave:0 }),
-    // 17 Flute Tone
-    mkPatch('Flute Tone', 0, 3, {
-      0: { r:[70,40,40,55], l:[99,92,92,0], out:99, coarse:1 },
-      1: { r:[75,50,45,60], l:[99,60,55,0], out:55, coarse:1 },
-    }, { lfoSpeed:38, lfoPitchModDepth:8, pitchModSens:3 }),
-    // 18 Reed Pipe
-    mkPatch('Reed Pipe', 0, 5, {
-      0: { r:[65,42,42,58], l:[99,90,90,0], out:99, coarse:1 },
-      1: { r:[70,48,42,62], l:[99,72,68,0], out:75, coarse:2 },
-      2: { r:[70,48,42,62], l:[99,65,60,0], out:60, coarse:3 },
-    }),
-    // 19 Synth Lead
-    mkPatch('Synth Lead', 0, 7, {
-      0: { r:[80,50,50,65], l:[99,90,90,0], out:99, coarse:1 },
-      1: { r:[85,60,50,70], l:[99,80,70,0], out:82, coarse:1 },
-      2: { r:[85,60,50,70], l:[99,75,65,0], out:70, coarse:2 },
-    }),
-    // 20 Bright Lead
-    mkPatch('Bright Lead', 0, 7, {
-      0: { r:[85,55,55,68], l:[99,88,88,0], out:99, coarse:1, vel:2 },
-      1: { r:[88,62,52,72], l:[99,82,72,0], out:85, coarse:1 },
-      2: { r:[88,62,52,72], l:[99,78,68,0], out:78, coarse:3 },
-      3: { r:[90,70,55,78], l:[99,70,55,0], out:65, coarse:5 },
-    }),
-    // 21 Glass Pad
-    mkPatch('Glass Pad', 4, 2, {
-      0: { r:[45,25,25,45], l:[99,95,95,0], out:99, coarse:1 },
-      1: { r:[50,30,28,50], l:[99,70,65,0], out:62, coarse:5 },
-      2: { r:[45,25,25,45], l:[99,95,95,0], out:90, coarse:1, detune:8 },
-      3: { r:[50,30,28,50], l:[99,65,60,0], out:58, coarse:7 },
-      4: { r:[45,25,25,45], l:[99,95,95,0], out:82, coarse:1, detune:6 },
-      5: { r:[50,30,28,50], l:[99,60,55,0], out:52, coarse:3 },
-    }),
-    // 22 Shimmer Pad
-    mkPatch('Shimmer Pad', 4, 3, {
-      0: { r:[40,22,22,42], l:[99,96,96,0], out:99, coarse:1, ams:1 },
-      1: { r:[45,28,25,48], l:[99,68,62,0], out:58, coarse:4 },
-      2: { r:[40,22,22,42], l:[99,96,96,0], out:92, coarse:1, detune:9, ams:1 },
-      3: { r:[45,28,25,48], l:[99,62,56,0], out:52, coarse:6 },
-      4: { r:[40,22,22,42], l:[99,96,96,0], out:85, coarse:2, detune:5 },
-      5: { r:[45,28,25,48], l:[99,58,50,0], out:48, coarse:3 },
-    }, { lfoSpeed:32, lfoAmpModDepth:20, lfoWave:0 }),
-    // 23 Harpsichord
-    mkPatch('Harpsichord', 0, 6, {
-      0: { r:[99,75,45,82], l:[99,55,0,0], out:99, coarse:1, vel:4 },
-      1: { r:[99,82,55,88], l:[99,50,0,0], out:82, coarse:2 },
-      2: { r:[99,85,60,90], l:[99,45,0,0], out:72, coarse:3 },
-      3: { r:[99,88,65,92], l:[99,40,0,0], out:65, coarse:4 },
-    }),
-    // 24 Clavinet
-    mkPatch('Clavinet', 4, 5, {
-      0: { r:[99,70,40,80], l:[99,60,0,0], out:99, coarse:2, vel:5 },
-      1: { r:[99,80,50,85], l:[99,50,0,0], out:80, coarse:3 },
-      2: { r:[99,72,42,82], l:[99,58,0,0], out:85, coarse:2, detune:8 },
-      3: { r:[99,82,52,87], l:[99,48,0,0], out:75, coarse:5 },
-    }),
-    // 25 Metallic Hit
-    mkPatch('Metallic Hit', 4, 3, {
-      0: { r:[99,80,50,85], l:[99,45,0,0], out:99, coarse:1, vel:4 },
-      1: { r:[99,88,60,90], l:[99,40,0,0], out:78, coarse:6, fine:15 },
-      2: { r:[99,82,52,87], l:[99,42,0,0], out:88, coarse:1 },
-      3: { r:[99,90,65,92], l:[99,35,0,0], out:72, coarse:9, fine:25 },
-      4: { r:[99,78,48,83], l:[99,48,0,0], out:80, coarse:1 },
-      5: { r:[99,85,58,88], l:[99,38,0,0], out:65, coarse:13, fine:10 },
-    }),
-    // 26 Choir Pad
-    mkPatch('Choir Pad', 1, 3, {
-      0: { r:[42,25,25,45], l:[99,96,96,0], out:99, coarse:1, detune:8 },
-      1: { r:[48,30,28,50], l:[99,72,68,0], out:58, coarse:1, detune:6 },
-      2: { r:[42,25,25,45], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      3: { r:[48,30,28,50], l:[99,68,62,0], out:52, coarse:2 },
-      4: { r:[48,30,28,50], l:[99,65,58,0], out:48, coarse:3 },
-      5: { r:[48,30,28,50], l:[99,60,52,0], out:42, coarse:4 },
-    }, { lfoSpeed:28, lfoPitchModDepth:5, pitchModSens:2 }),
-    // 27 Deep Sub Bass
-    mkPatch('Deep Sub Bass', 0, 7, {
-      0: { r:[99,35,20,65], l:[99,85,0,0], out:99, coarse:0 },
-      1: { r:[99,45,28,72], l:[99,75,0,0], out:88, coarse:1 },
-    }),
-    // 28 Pluck Bass
-    mkPatch('Pluck Bass', 0, 5, {
-      0: { r:[99,65,35,78], l:[99,55,0,0], out:99, coarse:1, vel:4 },
-      1: { r:[99,75,45,82], l:[99,50,0,0], out:80, coarse:2 },
-      2: { r:[99,80,50,85], l:[99,45,0,0], out:68, coarse:3 },
-    }),
-    // 29 Crystal Keys
-    mkPatch('Crystal Keys', 4, 1, {
-      0: { r:[97,28,18,55], l:[99,82,0,0], out:99, coarse:1, vel:3 },
-      1: { r:[96,45,30,70], l:[99,60,0,0], out:65, coarse:4 },
-      2: { r:[97,28,18,55], l:[99,82,0,0], out:88, coarse:1, detune:8 },
-      3: { r:[96,50,32,72], l:[99,55,0,0], out:58, coarse:6 },
-      4: { r:[97,25,15,50], l:[99,85,0,0], out:78, coarse:2 },
-      5: { r:[96,55,35,75], l:[99,50,0,0], out:52, coarse:8 },
-    }),
-    // 30 Warm Pad
-    mkPatch('Warm Pad', 1, 2, {
-      0: { r:[38,20,20,40], l:[99,97,97,0], out:99, coarse:1, detune:8 },
-      1: { r:[42,25,22,45], l:[99,75,72,0], out:55, coarse:1, detune:6 },
-      2: { r:[38,20,20,40], l:[99,97,97,0], out:94, coarse:1, detune:6 },
-      3: { r:[42,25,22,45], l:[99,70,65,0], out:48, coarse:2 },
-      4: { r:[42,25,22,45], l:[99,65,58,0], out:42, coarse:1 },
-      5: { r:[42,25,22,45], l:[99,60,52,0], out:38, coarse:1 },
-    }),
-    // 31 Sync Lead
-    mkPatch('Sync Lead', 0, 7, {
-      0: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1 },
-      1: { r:[90,65,55,75], l:[99,84,74,0], out:88, coarse:1 },
-      2: { r:[90,65,55,75], l:[99,80,70,0], out:80, coarse:2 },
-      3: { r:[92,70,58,78], l:[99,75,62,0], out:72, coarse:3 },
-      4: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5 },
-      5: { r:[94,75,60,80], l:[99,65,48,0], out:55, coarse:7 },
-    }, { oscSync:true }),
-    // 32 Init Voice
-    createDefaultPatch(),
-  ];
-}
-
-// Factory patches with correct Dexed operator numbering.
-// For algo 5: OP1(mod)→OP2(carrier), OP3(mod)→OP4(carrier), OP5(mod)→OP6(carrier)
-// For algo 1: OP1(fb mod)→OP2→OP3→OP4(carrier), OP5→OP6(carrier)
-// For algo 32: all carriers
 export function generateFactoryPatches() {
   return [
+    // Algorithm 5 is three carrier/modulator pairs: OP2>OP1, OP4>OP3, OP6>OP5,
+    // which in this array is 4>5, 2>3, 0>1. An FM electric piano wants each
+    // pair doing a different job rather than all three doing the same one.
+    //
+    //   pair A (0>1)  the tine. A modulator at fourteen times the carrier is
+    //                 what makes the metallic ping, and it has to die inside
+    //                 about a tenth of a second or the sound becomes a bell.
+    //   pair B (2>3)  the body, at ratio 1, decaying slowly: the wooden part.
+    //   pair C (4>5)  a second body voice, detuned, for width.
+    //
+    // Velocity goes mostly on the tine, so that playing harder opens the timbre
+    // rather than only turning it up. That is the character of the instrument.
     mkPatch('Elec Piano 1', 4, 0, {
-      0: { r:[96,90,60,72], l:[99,50,0,0], out:79, coarse:1, vel:5, krs:4 },
-      1: { r:[96,72,72,42], l:[99,96,93,0], out:99, coarse:1, vel:2, krs:3, bp:39, rd:20, rc:3 },
-      2: { r:[96,92,62,74], l:[99,48,0,0], out:76, coarse:1, vel:5, krs:4 },
-      3: { r:[96,72,72,42], l:[99,96,93,0], out:92, coarse:1, detune:10 },
-      4: { r:[96,88,58,70], l:[99,52,0,0], out:74, coarse:1, vel:4, krs:4 },
-      5: { r:[96,72,72,42], l:[99,96,93,0], out:88, coarse:1, detune:4 },
+      0: { r:[99,76,42,60], l:[99,35,0,0], out:86, coarse:14, vel:7, krs:3 },
+      1: { r:[99,50,26,48], l:[99,94,74,0], out:95, coarse:1, vel:2, krs:3, bp:39, rd:22, rc:3 },
+      2: { r:[98,62,46,58], l:[99,70,28,0], out:78, coarse:1, vel:5, krs:4 },
+      3: { r:[99,46,24,46], l:[99,95,78,0], out:98, coarse:1, vel:2, krs:3, bp:39, rd:18, rc:3 },
+      4: { r:[98,66,48,60], l:[99,64,22,0], out:72, coarse:1, vel:4, krs:4, detune:10 },
+      5: { r:[99,48,25,47], l:[99,94,76,0], out:89, coarse:1, vel:2, krs:3, detune:4 },
     }),
+    // The brighter one: a harder tine that lasts longer, a second high partial
+    // above it, and a body that sustains rather than decaying away.
     mkPatch('Elec Piano 2', 4, 0, {
-      0: { r:[99,92,55,68], l:[99,55,0,0], out:82, coarse:1, vel:6, krs:4 },
-      1: { r:[99,68,68,40], l:[99,95,90,0], out:99, coarse:1, vel:3, krs:3, bp:39, rd:25, rc:3 },
-      2: { r:[99,94,58,70], l:[99,50,0,0], out:78, coarse:14, vel:6, krs:3 },
-      3: { r:[99,68,68,40], l:[99,95,90,0], out:90, coarse:1, detune:9 },
-      4: { r:[99,90,52,66], l:[99,58,0,0], out:72, coarse:1, vel:5, krs:4 },
-      5: { r:[99,68,68,40], l:[99,95,90,0], out:85, coarse:1, detune:5 },
+      0: { r:[99,68,40,58], l:[99,48,0,0], out:92, coarse:14, vel:7, krs:3 },
+      1: { r:[99,52,28,50], l:[99,94,72,0], out:94, coarse:1, vel:2, krs:3, bp:39, rd:26, rc:3 },
+      2: { r:[99,72,44,60], l:[99,42,0,0], out:80, coarse:11, vel:6, krs:3 },
+      3: { r:[99,48,26,48], l:[99,95,76,0], out:97, coarse:1, vel:2, krs:3, bp:39, rd:22, rc:3 },
+      4: { r:[98,64,46,58], l:[99,60,20,0], out:74, coarse:1, vel:5, krs:4, detune:9 },
+      5: { r:[99,50,27,49], l:[99,94,74,0], out:88, coarse:1, vel:2, krs:3, detune:5 },
     }),
     // Algo 1 chains: OP6→OP5→OP4→OP3(carrier), OP2→OP1(carrier), fb on OP6.
     // ops[] is Dexed order (ops[5]=OP1), so the 2-op sounds live at 5 (carrier)
     // and 4 (modulator); a third op at 3 is the second carrier.
+    // Algorithm 1 has two carriers, OP1 and OP3, and this patch was using only
+    // one of them. With its single carrier already at 99 there was no way to
+    // bring it up to the rest of the bank. The second chain gives it a sub
+    // octave underneath, which is what a bass patch wants anyway.
     mkPatch('FM Bass', 0, 6, {
+      2: { r:[99,86,72,88], l:[99,62,0,0], out:74, coarse:2, vel:3 },
+      3: { r:[99,80,68,84], l:[99,94,82,0], out:99, coarse:1, vel:2, detune:9 },
       4: { r:[99,88,75,90], l:[99,70,0,0], out:88, coarse:1, vel:3 },
       5: { r:[99,82,70,85], l:[99,95,85,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Synth Bass', 0, 7, {
-      3: { r:[99,90,78,92], l:[99,65,0,0], out:80, coarse:2, vel:3 },
+      3: { r:[99,90,78,92], l:[99,65,0,0], out:95, coarse:2, vel:3 },
       4: { r:[99,86,72,88], l:[99,78,0,0], out:87, coarse:1, vel:4 },
       5: { r:[99,80,68,82], l:[99,96,88,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Bright Bell', 4, 0, {
-      0: { r:[99,62,42,50], l:[99,60,0,0], out:82, coarse:3, fine:50 },
-      1: { r:[99,50,35,40], l:[99,95,80,0], out:99, coarse:1 },
-      2: { r:[99,66,46,54], l:[99,55,0,0], out:78, coarse:5, fine:25 },
-      3: { r:[99,48,33,38], l:[99,96,82,0], out:93, coarse:1 },
-      4: { r:[99,70,50,58], l:[99,50,0,0], out:72, coarse:7, fine:75 },
-      5: { r:[99,45,30,35], l:[99,97,84,0], out:88, coarse:1 },
+      0: { r:[99,62,42,50], l:[99,60,0,0], out:82, coarse:3, fine:50, vel:6 },
+      1: { r:[99,50,35,40], l:[99,95,80,0], out:98, coarse:1, vel:2 },
+      2: { r:[99,66,46,54], l:[99,55,0,0], out:78, coarse:5, fine:25, vel:6 },
+      3: { r:[99,48,33,38], l:[99,96,82,0], out:92, coarse:1, vel:2 },
+      4: { r:[99,70,50,58], l:[99,50,0,0], out:72, coarse:7, fine:75, vel:6 },
+      5: { r:[99,45,30,35], l:[99,97,84,0], out:87, coarse:1, vel:2 },
     }),
     mkPatch('Tubular Bell', 4, 2, {
-      0: { r:[99,52,32,42], l:[99,65,25,0], out:80, coarse:3, fine:52 },
-      1: { r:[99,38,22,30], l:[99,97,88,0], out:99, coarse:1 },
-      2: { r:[99,56,36,46], l:[99,60,20,0], out:76, coarse:7, fine:10 },
-      3: { r:[99,36,20,28], l:[99,97,90,0], out:94, coarse:1 },
-      4: { r:[99,60,40,50], l:[99,55,15,0], out:72, coarse:4, fine:30 },
-      5: { r:[99,34,18,26], l:[99,98,92,0], out:88, coarse:2 },
+      0: { r:[99,52,32,42], l:[99,65,25,0], out:80, coarse:3, fine:52, vel:6 },
+      1: { r:[99,38,22,30], l:[99,97,88,0], out:94, coarse:1, vel:2 },
+      2: { r:[99,56,36,46], l:[99,60,20,0], out:76, coarse:7, fine:10, vel:6 },
+      3: { r:[99,36,20,28], l:[99,97,90,0], out:89, coarse:1, vel:2 },
+      4: { r:[99,60,40,50], l:[99,55,15,0], out:72, coarse:4, fine:30, vel:6 },
+      5: { r:[99,34,18,26], l:[99,98,92,0], out:83, coarse:2, vel:2 },
     }),
     // Algo 22: OP2→OP1, OP6→OP3/OP4/OP5, carriers OP1,3,4,5 (ops 5,3,2,1),
     // modulators OP2 (ops[4]) and OP6 (ops[0], feedback).
     mkPatch('FM Brass', 21, 7, {
-      0: { r:[72,60,50,70], l:[99,80,70,0], out:70, coarse:1 },
-      1: { r:[62,50,50,60], l:[99,90,90,0], out:85, coarse:1 },
-      2: { r:[62,50,50,60], l:[99,90,90,0], out:75, coarse:1 },
-      3: { r:[62,50,50,60], l:[99,90,90,0], out:90, coarse:1 },
-      4: { r:[72,60,50,70], l:[99,80,70,0], out:80, coarse:1 },
-      5: { r:[62,50,50,60], l:[99,90,90,0], out:99, coarse:1 },
+      0: { r:[72,60,50,70], l:[99,80,70,0], out:70, coarse:1, vel:5 },
+      1: { r:[62,50,50,60], l:[99,90,90,0], out:82, coarse:1, vel:3 },
+      2: { r:[62,50,50,60], l:[99,90,90,0], out:72, coarse:1, vel:3 },
+      3: { r:[62,50,50,60], l:[99,90,90,0], out:87, coarse:1, vel:3 },
+      4: { r:[72,60,50,70], l:[99,80,70,0], out:80, coarse:1, vel:5 },
+      5: { r:[62,50,50,60], l:[99,90,90,0], out:96, coarse:1, vel:3 },
     }),
     mkPatch('Soft Brass', 21, 5, {
-      0: { r:[65,55,45,65], l:[99,75,65,0], out:65, coarse:1 },
-      1: { r:[55,45,45,55], l:[99,92,92,0], out:88, coarse:1, detune:6 },
-      2: { r:[55,45,45,55], l:[99,92,92,0], out:68, coarse:1 },
-      3: { r:[55,45,45,55], l:[99,92,92,0], out:92, coarse:1, detune:8 },
-      4: { r:[65,55,45,65], l:[99,75,65,0], out:72, coarse:1 },
-      5: { r:[55,45,45,55], l:[99,92,92,0], out:99, coarse:1 },
+      0: { r:[65,55,45,65], l:[99,75,65,0], out:65, coarse:1, vel:4 },
+      1: { r:[55,45,45,55], l:[99,92,92,0], out:85, coarse:1, detune:6, vel:2 },
+      2: { r:[55,45,45,55], l:[99,92,92,0], out:65, coarse:1, vel:2 },
+      3: { r:[55,45,45,55], l:[99,92,92,0], out:89, coarse:1, detune:8, vel:2 },
+      4: { r:[65,55,45,65], l:[99,75,65,0], out:72, coarse:1, vel:4 },
+      5: { r:[55,45,45,55], l:[99,92,92,0], out:96, coarse:1, vel:2 },
     }),
     // Algo 2: OP2→OP1(carrier, fb on OP2), OP6→OP5→OP4→OP3(carrier).
     // Carriers OP1/OP3 are ops[5]/ops[3]; the deep-chain mods sit above OP3.
     mkPatch('String Pad', 1, 4, {
-      0: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      1: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      2: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1 },
-      3: { r:[50,30,30,50], l:[99,95,95,0], out:90, coarse:1, detune:6 },
-      4: { r:[55,35,35,55], l:[99,80,80,0], out:70, coarse:1, detune:6 },
-      5: { r:[50,30,30,50], l:[99,95,95,0], out:99, coarse:1, detune:8 },
+      0: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1, vel:3 },
+      1: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1, vel:3 },
+      2: { r:[60,40,40,60], l:[99,70,70,0], out:60, coarse:1, vel:3 },
+      3: { r:[50,30,30,50], l:[99,95,95,0], out:88, coarse:1, detune:6, vel:1 },
+      4: { r:[55,35,35,55], l:[99,80,80,0], out:70, coarse:1, detune:6, vel:3 },
+      5: { r:[50,30,30,50], l:[99,95,95,0], out:97, coarse:1, detune:8, vel:1 },
     }),
     mkPatch('Warm Strings', 1, 3, {
-      0: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
-      1: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1 },
-      2: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:2 },
-      3: { r:[45,28,28,48], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      4: { r:[50,32,32,52], l:[99,82,82,0], out:65, coarse:1, detune:5 },
-      5: { r:[45,28,28,48], l:[99,96,96,0], out:99, coarse:1, detune:9 },
+      0: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1, vel:3 },
+      1: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:1, vel:3 },
+      2: { r:[55,38,38,58], l:[99,68,68,0], out:55, coarse:2, vel:3 },
+      3: { r:[45,28,28,48], l:[99,96,96,0], out:90, coarse:1, detune:6, vel:1 },
+      4: { r:[50,32,32,52], l:[99,82,82,0], out:65, coarse:1, detune:5, vel:3 },
+      5: { r:[45,28,28,48], l:[99,96,96,0], out:97, coarse:1, detune:9, vel:1 },
     }),
     mkPatch('Drawbar Organ', 31, 0, {
-      0: { r:[99,99,99,99], l:[99,99,99,0], out:99, coarse:1 },
-      1: { r:[99,99,99,99], l:[99,99,99,0], out:90, coarse:2 },
-      2: { r:[99,99,99,99], l:[99,99,99,0], out:85, coarse:3 },
-      3: { r:[99,99,99,99], l:[99,99,99,0], out:80, coarse:4 },
-      4: { r:[99,99,99,99], l:[99,99,99,0], out:75, coarse:6 },
-      5: { r:[99,99,99,99], l:[99,99,99,0], out:70, coarse:8 },
+      0: { r:[99,99,99,99], l:[99,99,99,0], out:93, coarse:1 },
+      1: { r:[99,99,99,99], l:[99,99,99,0], out:84, coarse:2 },
+      2: { r:[99,99,99,99], l:[99,99,99,0], out:79, coarse:3 },
+      3: { r:[99,99,99,99], l:[99,99,99,0], out:74, coarse:4 },
+      4: { r:[99,99,99,99], l:[99,99,99,0], out:69, coarse:6 },
+      5: { r:[99,99,99,99], l:[99,99,99,0], out:64, coarse:8 },
     }),
     mkPatch('Perc Organ', 31, 2, {
-      0: { r:[99,99,99,99], l:[99,99,99,0], out:99, coarse:1 },
-      1: { r:[99,99,99,99], l:[99,99,99,0], out:88, coarse:2 },
-      2: { r:[99,70,50,80], l:[99,60,0,0], out:78, coarse:3 },
-      3: { r:[99,99,99,99], l:[99,99,99,0], out:82, coarse:4 },
-      4: { r:[99,80,60,85], l:[99,50,0,0], out:70, coarse:6 },
-      5: { r:[99,99,99,99], l:[99,99,99,0], out:65, coarse:8 },
+      0: { r:[99,99,99,99], l:[99,99,99,0], out:94, coarse:1 },
+      1: { r:[99,99,99,99], l:[99,99,99,0], out:83, coarse:2 },
+      2: { r:[99,70,50,80], l:[99,60,0,0], out:85, coarse:3, vel:6 },
+      3: { r:[99,99,99,99], l:[99,99,99,0], out:77, coarse:4 },
+      4: { r:[99,80,60,85], l:[99,50,0,0], out:77, coarse:6, vel:5 },
+      5: { r:[99,99,99,99], l:[99,99,99,0], out:60, coarse:8 },
     }),
     mkPatch('Pluck Key', 4, 5, {
       0: { r:[99,80,50,85], l:[99,50,0,0], out:80, coarse:3 },
       1: { r:[99,70,40,80], l:[99,60,0,0], out:99, coarse:2, vel:5 },
     }),
     mkPatch('Mallet Hit', 4, 0, {
-      0: { r:[99,85,60,90], l:[99,30,0,0], out:70, coarse:4 },
-      1: { r:[99,60,30,75], l:[99,50,0,0], out:99, coarse:1 },
+      0: { r:[99,82,55,88], l:[99,26,0,0], out:72, coarse:4, vel:7 },
+      1: { r:[99,52,24,70], l:[99,82,46,0], out:99, coarse:1, vel:3, krs:2 },
+      2: { r:[99,84,57,88], l:[99,22,0,0], out:66, coarse:7, vel:6 },
+      3: { r:[99,54,26,72], l:[99,80,42,0], out:99, coarse:1, vel:3, krs:2, detune:9 },
     }),
     mkPatch('Soft Mallet', 4, 0, {
-      0: { r:[99,70,40,80], l:[99,40,0,0], out:60, coarse:3 },
-      1: { r:[99,35,20,50], l:[99,80,0,0], out:99, coarse:1 },
-      3: { r:[99,35,20,50], l:[99,80,0,0], out:85, coarse:1 },
+      0: { r:[99,70,40,80], l:[99,40,0,0], out:60, coarse:3, vel:5 },
+      1: { r:[99,35,20,50], l:[99,80,0,0], out:99, coarse:1, vel:2 },
+      3: { r:[99,35,20,50], l:[99,80,0,0], out:85, coarse:1, vel:2 },
     }, { lfoSpeed:40, lfoAmpModDepth:30 }),
     mkPatch('Tremolo Bell', 4, 1, {
-      0: { r:[99,60,30,70], l:[99,55,0,0], out:68, coarse:5 },
-      1: { r:[99,25,12,40], l:[99,88,0,0], out:99, coarse:1, ams:2 },
-      2: { r:[99,65,35,72], l:[99,50,0,0], out:62, coarse:8 },
-      3: { r:[99,25,12,40], l:[99,88,0,0], out:88, coarse:1, ams:2 },
+      0: { r:[99,60,30,70], l:[99,55,0,0], out:68, coarse:5, vel:5 },
+      1: { r:[99,25,12,40], l:[99,88,0,0], out:98, coarse:1, ams:2, vel:2 },
+      2: { r:[99,65,35,72], l:[99,50,0,0], out:62, coarse:8, vel:5 },
+      3: { r:[99,25,12,40], l:[99,88,0,0], out:87, coarse:1, ams:2, vel:2 },
     }, { lfoSpeed:45, lfoAmpModDepth:40, lfoWave:0 }),
     mkPatch('Flute Tone', 0, 3, {
-      4: { r:[75,50,45,60], l:[99,60,55,0], out:55, coarse:1 },
-      5: { r:[70,40,40,55], l:[99,92,92,0], out:99, coarse:1 },
+      4: { r:[75,50,45,60], l:[99,60,55,0], out:55, coarse:1, vel:4 },
+      5: { r:[70,40,40,55], l:[99,92,92,0], out:99, coarse:1, vel:2 },
     }, { lfoSpeed:38, lfoPitchModDepth:8, pitchModSens:3 }),
     mkPatch('Reed Pipe', 0, 5, {
-      3: { r:[70,48,42,62], l:[99,65,60,0], out:60, coarse:3 },
-      4: { r:[70,48,42,62], l:[99,72,68,0], out:75, coarse:2 },
-      5: { r:[65,42,42,58], l:[99,90,90,0], out:99, coarse:1 },
+      3: { r:[70,48,42,62], l:[99,65,60,0], out:60, coarse:3, vel:2 },
+      4: { r:[70,48,42,62], l:[99,72,68,0], out:75, coarse:2, vel:5 },
+      5: { r:[65,42,42,58], l:[99,90,90,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Synth Lead', 0, 7, {
-      3: { r:[85,60,50,70], l:[99,75,65,0], out:70, coarse:2 },
-      4: { r:[85,60,50,70], l:[99,80,70,0], out:82, coarse:1 },
-      5: { r:[80,50,50,65], l:[99,90,90,0], out:99, coarse:1 },
+      3: { r:[85,60,50,70], l:[99,75,65,0], out:80, coarse:2, vel:2 },
+      4: { r:[85,60,50,70], l:[99,80,70,0], out:82, coarse:1, vel:5 },
+      5: { r:[80,50,50,65], l:[99,90,90,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Bright Lead', 0, 7, {
       2: { r:[90,70,55,78], l:[99,70,55,0], out:65, coarse:5 },
-      3: { r:[88,62,52,72], l:[99,78,68,0], out:78, coarse:3 },
+      3: { r:[88,62,52,72], l:[99,78,68,0], out:94, coarse:3 },
       4: { r:[88,62,52,72], l:[99,82,72,0], out:85, coarse:1 },
       5: { r:[85,55,55,68], l:[99,88,88,0], out:99, coarse:1, vel:2 },
     }),
     mkPatch('Glass Pad', 4, 2, {
-      0: { r:[50,30,28,50], l:[99,70,65,0], out:62, coarse:5 },
-      1: { r:[45,25,25,45], l:[99,95,95,0], out:99, coarse:1 },
-      2: { r:[50,30,28,50], l:[99,65,60,0], out:58, coarse:7 },
-      3: { r:[45,25,25,45], l:[99,95,95,0], out:90, coarse:1, detune:8 },
-      4: { r:[50,30,28,50], l:[99,60,55,0], out:52, coarse:3 },
-      5: { r:[45,25,25,45], l:[99,95,95,0], out:82, coarse:1, detune:6 },
+      0: { r:[50,30,28,50], l:[99,70,65,0], out:62, coarse:5, vel:3 },
+      1: { r:[45,25,25,45], l:[99,95,95,0], out:95, coarse:1, vel:1 },
+      2: { r:[50,30,28,50], l:[99,65,60,0], out:58, coarse:7, vel:3 },
+      3: { r:[45,25,25,45], l:[99,95,95,0], out:86, coarse:1, detune:8, vel:1 },
+      4: { r:[50,30,28,50], l:[99,60,55,0], out:52, coarse:3, vel:3 },
+      5: { r:[45,25,25,45], l:[99,95,95,0], out:78, coarse:1, detune:6, vel:1 },
     }),
     mkPatch('Shimmer Pad', 4, 3, {
-      0: { r:[45,28,25,48], l:[99,68,62,0], out:58, coarse:4 },
-      1: { r:[40,22,22,42], l:[99,96,96,0], out:99, coarse:1, ams:1 },
-      2: { r:[45,28,25,48], l:[99,62,56,0], out:52, coarse:6 },
-      3: { r:[40,22,22,42], l:[99,96,96,0], out:92, coarse:1, detune:9, ams:1 },
-      4: { r:[45,28,25,48], l:[99,58,50,0], out:48, coarse:3 },
-      5: { r:[40,22,22,42], l:[99,96,96,0], out:85, coarse:2, detune:5 },
+      0: { r:[45,28,25,48], l:[99,68,62,0], out:58, coarse:4, vel:3 },
+      1: { r:[40,22,22,42], l:[99,96,96,0], out:97, coarse:1, ams:1, vel:1 },
+      2: { r:[45,28,25,48], l:[99,62,56,0], out:52, coarse:6, vel:3 },
+      3: { r:[40,22,22,42], l:[99,96,96,0], out:90, coarse:1, detune:9, ams:1, vel:1 },
+      4: { r:[45,28,25,48], l:[99,58,50,0], out:48, coarse:3, vel:3 },
+      5: { r:[40,22,22,42], l:[99,96,96,0], out:83, coarse:2, detune:5, vel:1 },
     }, { lfoSpeed:32, lfoAmpModDepth:20, lfoWave:0 }),
     mkPatch('Harpsichord', 0, 6, {
-      2: { r:[99,88,65,92], l:[99,40,0,0], out:65, coarse:4 },
-      3: { r:[99,85,60,90], l:[99,45,0,0], out:72, coarse:3 },
-      4: { r:[99,82,55,88], l:[99,50,0,0], out:82, coarse:2 },
-      5: { r:[99,75,45,82], l:[99,55,0,0], out:99, coarse:1, vel:4 },
+      2: { r:[99,80,50,88], l:[99,36,0,0], out:70, coarse:4 },
+      3: { r:[99,74,42,86], l:[99,44,0,0], out:99, coarse:3 },
+      4: { r:[99,66,34,84], l:[99,56,18,0], out:86, coarse:2, krs:2 },
+      5: { r:[99,58,26,78], l:[99,84,50,0], out:99, coarse:1, vel:4, krs:2 },
     }),
     mkPatch('Clavinet', 4, 5, {
-      0: { r:[99,80,50,85], l:[99,50,0,0], out:80, coarse:3 },
-      1: { r:[99,70,40,80], l:[99,60,0,0], out:99, coarse:2, vel:5 },
-      2: { r:[99,82,52,87], l:[99,48,0,0], out:75, coarse:5 },
-      3: { r:[99,72,42,82], l:[99,58,0,0], out:85, coarse:2, detune:8 },
+      0: { r:[99,76,44,85], l:[99,44,0,0], out:80, coarse:3 },
+      1: { r:[99,62,30,80], l:[99,78,40,0], out:99, coarse:2, vel:5, krs:3 },
+      2: { r:[99,78,46,87], l:[99,42,0,0], out:75, coarse:5 },
+      3: { r:[99,64,32,82], l:[99,76,38,0], out:99, coarse:2, detune:8, krs:3 },
+      4: { r:[99,80,48,86], l:[99,38,0,0], out:62, coarse:4 },
+      5: { r:[99,66,34,84], l:[99,74,36,0], out:99, coarse:1, vel:4, krs:3, detune:4 },
     }),
     mkPatch('Metallic Hit', 4, 3, {
       0: { r:[99,88,60,90], l:[99,40,0,0], out:78, coarse:6, fine:15 },
       1: { r:[99,80,50,85], l:[99,45,0,0], out:99, coarse:1, vel:4 },
       2: { r:[99,90,65,92], l:[99,35,0,0], out:72, coarse:9, fine:25 },
-      3: { r:[99,82,52,87], l:[99,42,0,0], out:88, coarse:1 },
+      3: { r:[99,82,52,87], l:[99,42,0,0], out:90, coarse:1 },
       4: { r:[99,85,58,88], l:[99,38,0,0], out:65, coarse:13, fine:10 },
-      5: { r:[99,78,48,83], l:[99,48,0,0], out:80, coarse:1 },
+      5: { r:[99,78,48,83], l:[99,48,0,0], out:82, coarse:1 },
     }),
     mkPatch('Choir Pad', 1, 3, {
-      0: { r:[48,30,28,50], l:[99,60,52,0], out:42, coarse:4 },
-      1: { r:[48,30,28,50], l:[99,65,58,0], out:48, coarse:3 },
-      2: { r:[48,30,28,50], l:[99,68,62,0], out:52, coarse:2 },
-      3: { r:[42,25,25,45], l:[99,96,96,0], out:92, coarse:1, detune:6 },
-      4: { r:[48,30,28,50], l:[99,72,68,0], out:58, coarse:1, detune:6 },
-      5: { r:[42,25,25,45], l:[99,96,96,0], out:99, coarse:1, detune:8 },
+      0: { r:[48,30,28,50], l:[99,60,52,0], out:42, coarse:4, vel:3 },
+      1: { r:[48,30,28,50], l:[99,65,58,0], out:48, coarse:3, vel:3 },
+      2: { r:[48,30,28,50], l:[99,68,62,0], out:52, coarse:2, vel:3 },
+      3: { r:[42,25,25,45], l:[99,96,96,0], out:90, coarse:1, detune:6, vel:1 },
+      4: { r:[48,30,28,50], l:[99,72,68,0], out:58, coarse:1, detune:6, vel:3 },
+      5: { r:[42,25,25,45], l:[99,96,96,0], out:97, coarse:1, detune:8, vel:1 },
     }, { lfoSpeed:28, lfoPitchModDepth:5, pitchModSens:2 }),
     mkPatch('Deep Sub Bass', 0, 7, {
-      4: { r:[99,45,28,72], l:[99,75,0,0], out:88, coarse:1 },
-      5: { r:[99,35,20,65], l:[99,85,0,0], out:99, coarse:0 },
+      4: { r:[99,45,28,72], l:[99,75,0,0], out:88, coarse:1, vel:4 },
+      5: { r:[99,35,20,65], l:[99,85,0,0], out:99, coarse:0, vel:2 },
     }),
     mkPatch('Pluck Bass', 0, 5, {
-      3: { r:[99,80,50,85], l:[99,45,0,0], out:68, coarse:3 },
+      3: { r:[99,80,50,85], l:[99,45,0,0], out:83, coarse:3 },
       4: { r:[99,75,45,82], l:[99,50,0,0], out:80, coarse:2 },
       5: { r:[99,65,35,78], l:[99,55,0,0], out:99, coarse:1, vel:4 },
     }),
     mkPatch('Crystal Keys', 4, 1, {
       0: { r:[96,45,30,70], l:[99,60,0,0], out:65, coarse:4 },
-      1: { r:[97,28,18,55], l:[99,82,0,0], out:99, coarse:1, vel:3 },
+      1: { r:[97,28,18,55], l:[99,82,0,0], out:97, coarse:1, vel:3 },
       2: { r:[96,50,32,72], l:[99,55,0,0], out:58, coarse:6 },
-      3: { r:[97,28,18,55], l:[99,82,0,0], out:88, coarse:1, detune:8 },
+      3: { r:[97,28,18,55], l:[99,82,0,0], out:86, coarse:1, detune:8 },
       4: { r:[96,55,35,75], l:[99,50,0,0], out:52, coarse:8 },
-      5: { r:[97,25,15,50], l:[99,85,0,0], out:78, coarse:2 },
+      5: { r:[97,25,15,50], l:[99,85,0,0], out:76, coarse:2 },
     }),
     mkPatch('Warm Pad', 1, 2, {
-      0: { r:[42,25,22,45], l:[99,60,52,0], out:38, coarse:1 },
-      1: { r:[42,25,22,45], l:[99,65,58,0], out:42, coarse:1 },
-      2: { r:[42,25,22,45], l:[99,70,65,0], out:48, coarse:2 },
-      3: { r:[38,20,20,40], l:[99,97,97,0], out:94, coarse:1, detune:6 },
-      4: { r:[42,25,22,45], l:[99,75,72,0], out:55, coarse:1, detune:6 },
-      5: { r:[38,20,20,40], l:[99,97,97,0], out:99, coarse:1, detune:8 },
+      0: { r:[42,25,22,45], l:[99,60,52,0], out:38, coarse:1, vel:3 },
+      1: { r:[42,25,22,45], l:[99,65,58,0], out:42, coarse:1, vel:3 },
+      2: { r:[42,25,22,45], l:[99,70,65,0], out:48, coarse:2, vel:3 },
+      3: { r:[38,20,20,40], l:[99,97,97,0], out:92, coarse:1, detune:6, vel:1 },
+      4: { r:[42,25,22,45], l:[99,75,72,0], out:55, coarse:1, detune:6, vel:3 },
+      5: { r:[38,20,20,40], l:[99,97,97,0], out:97, coarse:1, detune:8, vel:1 },
     }),
     mkPatch('Sync Lead', 0, 7, {
-      0: { r:[94,75,60,80], l:[99,65,48,0], out:55, coarse:7 },
-      1: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5 },
-      2: { r:[92,70,58,78], l:[99,75,62,0], out:72, coarse:3 },
-      3: { r:[90,65,55,75], l:[99,80,70,0], out:80, coarse:2 },
-      4: { r:[90,65,55,75], l:[99,84,74,0], out:88, coarse:1 },
-      5: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1 },
+      0: { r:[94,75,60,80], l:[99,65,48,0], out:55, coarse:7, vel:5 },
+      1: { r:[92,70,58,78], l:[99,70,55,0], out:62, coarse:5, vel:5 },
+      2: { r:[92,70,58,78], l:[99,75,62,0], out:72, coarse:3, vel:5 },
+      3: { r:[90,65,55,75], l:[99,80,70,0], out:99, coarse:2, vel:2 },
+      4: { r:[90,65,55,75], l:[99,84,74,0], out:88, coarse:1, vel:5 },
+      5: { r:[88,58,58,70], l:[99,86,86,0], out:99, coarse:1, vel:2 },
     }, { oscSync:true }),
-    // INIT voice: algo 1 with OP1 (ops[5]) as the sole carrier — the default patch.
-    createDefaultPatch(),
+    // INIT voice: algorithm 1 with OP1 (ops[5]) as the sole carrier, the blank
+    // sheet you start a patch from. A bare sine at full output is some 8 dB
+    // hotter than anything else here, which is a nasty surprise when scrolling
+    // through sounds, so the copy that ships is trimmed to sit with its
+    // neighbours. createDefaultPatch() itself is untouched, so an INIT you
+    // build on still starts with all of its headroom.
+    (() => { const p = createDefaultPatch(); p.ops[5].outputLevel = 94; return p; })(),
   ];
 }

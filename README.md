@@ -1,6 +1,6 @@
 # OpenDX7
 
-**Version 1.2**
+**Version 1.3**
 
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
@@ -102,6 +102,14 @@ node test/e2e-test.js           # 28 end-to-end tests
 - Double-click knob reset now returns center-based knobs (detune, transpose, pitch EG levels, PB range) to their defaults instead of zero.
 - Mod wheel and aftertouch now add vibrato (LFO pitch depth) instead of statically detuning the note.
 - Removed the donation link from the README.
+
+#### Version 1.3
+- Rebuilt the two electric pianos, which were the weakest patches in the bank and one of them is what loads on startup. Every operator sat at ratio 1, so neither had a tine: the defining sound of FM electric piano was a sine wave with a tick on the front. Both now carry a 14:1 tine modulator that dies inside a tenth of a second, and velocity drives it, so playing harder opens the timbre instead of only raising the level. Measured at the strike: 298 Hz before, 1633 Hz now.
+- Gave the bank a velocity response. Twenty-one of the thirty-two patches ignored how hard you played entirely. Thirty do now; the two that still do not are a drawbar organ, which is not touch sensitive on the real instrument, and the INIT sine.
+- Fixed three patches that died before they rang. Their carriers held the third envelope level at zero, so the note walked down to silence while the key was still held: the mallet was gone in a tenth of a second, the harpsichord inside one. Mallet Hit and Clavinet also gained a second and third voice, and FM Bass a second carrier it was not using.
+- Levelled the bank, so changing patch no longer changes volume. The loudest patch now sits under 1 dB above the median, where the spread used to reach 20 dB.
+- Added `test/bank-test.js`: 78 checks that every patch sounds, answers the hand, holds its level, rings if it is named after something struck, and does not click on release. Each assertion was confirmed by making the bank wrong and watching it fail.
+- Removed 259 lines of dead patch data that shipped to every visitor. It also shadowed the live bank during edits, since it came first in the file and shared its text.
 
 #### Version 1.2
 - The bundled 32-patch bank is the only bank that ships, and it is original work. Version 1.0 removed Yamaha's ROM cartridge data, but a later change fetched the same cartridge at page load from two strangers' repositories, which put it back in all but name. One of those two URLs is now a 404, so the page was also one dead link away from silently changing what it sounds like. Load your own cartridge with **LOAD SYX**.
