@@ -159,6 +159,33 @@ for (const p of patches) {
 }
 console.log('  no discontinuity at note-off in any patch ✓');
 
+section('B8. Patches get relatively duller toward the top of the keyboard');
+{
+  // A real instrument loses harmonics as it climbs, and so should an FM patch:
+  // hold the modulation index constant up the keyboard and the top octaves turn
+  // shrill and thin. On a DX7 that is keyboard level scaling on the modulators.
+  // Organs are excluded because a drawbar is a plain sine with nothing to roll
+  // off, which is exactly what the real instrument is.
+  const exempt = new Set(['Drawbar Organ', 'Perc Organ', 'INIT VOICE']);
+  // Measured early, while the modulators are still sounding. Later in the note
+  // several of these patches have decayed to a bare carrier, and a sine has no
+  // harmonics to roll off however the scaling is set.
+  const bright = (p, note) => {
+    const f0 = 440 * Math.pow(2, (note - 69) / 12);
+    return centroid(render(p, note, 100, 1.0), Math.floor(0.012 * SR), 1024) / f0;
+  };
+  let flat = [];
+  for (const p of patches) {
+    if (exempt.has(p.name)) continue;
+    const low = bright(p, 48), high = bright(p, 84);
+    if (low < 1.15) continue;              // already a near sine: nothing to roll off
+    if (high / low > 0.98) flat.push(`${p.name} (${low.toFixed(1)} -> ${high.toFixed(1)})`);
+  }
+  assert(flat.length === 0,
+    `these keep the same relative brightness three octaves up: ${flat.join(', ')}`);
+  console.log(`  every patch with harmonics above a sine rolls off upward ✓`);
+}
+
 console.log(`\n${'='.repeat(50)}`);
 console.log(`Results: ${passed}/${total} passed, ${failed} failed`);
 if (failed > 0) { console.log('SOME BANK TESTS FAILED'); process.exit(1); }
