@@ -3,6 +3,7 @@
 import { createDefaultPatch, generateFactoryPatches, parseSyxBank } from './dx7-patch.js';
 import { drawAlgorithm } from './algo-display.js';
 import { drawEnvelope, drawPitchEnvelope } from './env-display.js';
+import { watchCanvas, sizeCanvasOnly } from './canvas-fit.js';
 import { initKnobs, setKnobValue } from './knob.js';
 import { MidiPlayer } from './midi-player.js';
 import { setAudioLevel } from './ui-fx.js';
@@ -89,35 +90,15 @@ let audioReady = false;
 let patches = generateFactoryPatches();
 let currentPatch = null; // No sound until user selects one
 
-// External ROM1A cartridge: try the webdx7 preset location first, then the
-// dx7-synth-js copy. If neither loads, the built-in factory bank above stays.
-const ROM1A_URLS = [
-  'https://raw.githubusercontent.com/webaudiomodules/webdx7/master/dist/dx7/presets/rom1A.syx',
-  'https://raw.githubusercontent.com/mmontag/dx7-synth-js/master/roms/ROM1A.SYX',
-];
+// The bank above is the one that ships: 32 original patches, ours to give away.
+// Earlier versions fetched Yamaha's ROM1A cartridge from two other people's
+// repositories at load. That was two problems in one. It was not ours to
+// redistribute, and it was not ours to depend on: one of the two URLs is
+// already a 404, so the page was one dead link away from silently changing
+// what it sounds like. Load your own cartridge with LOAD SYX if you have one.
 
-async function loadExternalRom1A() {
-  for (const url of ROM1A_URLS) {
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) continue;
-      const data = new Uint8Array(await resp.arrayBuffer());
-      if (data.length !== 4104) continue;
-      const bank = parseSyxBank(data);
-      if (bank.length === 32) {
-        patches = bank;
-        updatePatchSelect();
-        console.log('[opendx7] Loaded DX7 ROM1A cartridge from', url);
-        return true;
-      }
-    } catch { /* try next source */ }
-  }
-  console.log('[opendx7] External ROM1A unavailable, using built-in bank');
-  return false;
-}
-
-// Find a patch by name, first match wins. Names are normalized so
-// "E.PIANO 1" matches ROM1A's padded "E.PIANO 1 " form.
+// Find a patch by name, first match wins. Names are normalized so that a
+// cartridge's padded "E.PIANO 1 " matches a plain "E.PIANO 1".
 function findPatchIndex(names) {
   const norm = (s) => s.toUpperCase().replace(/\s+/g, ' ').trim();
   for (const want of names) {
@@ -704,7 +685,7 @@ function setup() {
   document.getElementById('demo-select')?.addEventListener('change', async function() {
     midiPlayer.stop();
     if (!this.value) return;
-    // Each demo names the patch it wants (ROM1A name first, built-in fallback)
+    // Each demo names the patch it wants, best match first
     const names = (this.selectedOptions[0]?.dataset.patch || 'E.PIANO 1,Crystal Keys').split(',');
     const idx = findPatchIndex(names);
     const sel = document.getElementById('patch-select');
@@ -880,16 +861,30 @@ function setup() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updatePatchSelect();
-  // Load the real cartridge if reachable, then default to the E.Piano
-  // unless the user already picked a sound while the bank was loading.
-  loadExternalRom1A().then(() => {
-    if (currentPatch === null) {
-      const idx = findPatchIndex(['E.PIANO 1', 'Elec Piano 1']);
-      const sel = document.getElementById('patch-select');
-      if (sel) sel.value = idx;
-      loadPatch(idx);
+
+  // Redraw the three visualizations whenever their box changes. Without this a
+  // canvas keeps whatever size it was first measured at, which on a cold load
+  // is the size it had before the stylesheet applied.
+  watchCanvas(document.getElementById('algo-canvas'), () => {
+    if (currentPatch) drawAlgorithm(document.getElementById('algo-canvas'), currentPatch.algorithm);
+  });
+  watchCanvas(document.getElementById('env-canvas'), updateEnv);
+  watchCanvas(document.getElementById('pitch-env-canvas'), updatePitchEnv);
+  // The visualizer redraws itself every frame, so it only needs its backing
+  // store kept level with its box; the idle grid does need one redraw.
+  const waveC = document.getElementById('waveform-canvas');
+  watchCanvas(waveC, () => {
+    if (sizeCanvasOnly(waveC) && !vizOn) {
+      drawGrid(waveC.getContext('2d'), waveC.width, waveC.height, 'WAVEFORM \u00b7 select a sound');
     }
   });
+
+  if (currentPatch === null) {
+    const idx = findPatchIndex(['Elec Piano 1', 'E.PIANO 1']);
+    const sel = document.getElementById('patch-select');
+    if (sel) sel.value = idx;
+    loadPatch(idx);
+  }
 
   // Idle visualizer
   const wC = document.getElementById('waveform-canvas');

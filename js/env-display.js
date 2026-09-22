@@ -2,20 +2,18 @@
 // Copyright (c) 2026 Keith Adler
 // DX7 Envelope visualization — high-DPI aware
 
+import { fitCanvas } from './canvas-fit.js';
+
+// Returns null when the element has no box yet, so the caller declines to draw
+// rather than baking a wrong size into the backing store.
 function setupHiDPI(canvas) {
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const w = rect.width || canvas.width;
-  const h = rect.height || canvas.height;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  return { ctx, w, h };
+  return fitCanvas(canvas);
 }
 
 export function drawEnvelope(canvas, r1, r2, r3, r4, l1, l2, l3, l4) {
-  const { ctx, w, h } = setupHiDPI(canvas);
+  const fit = setupHiDPI(canvas);
+  if (!fit) return;
+  const { ctx, w, h } = fit;
   const pad = 8;
 
   // Background
@@ -87,7 +85,9 @@ export function drawEnvelope(canvas, r1, r2, r3, r4, l1, l2, l3, l4) {
 }
 
 export function drawPitchEnvelope(canvas, r1, r2, r3, r4, l1, l2, l3, l4) {
-  const { ctx, w, h } = setupHiDPI(canvas);
+  const fit = setupHiDPI(canvas);
+  if (!fit) return;
+  const { ctx, w, h } = fit;
   const pad = 6;
 
   ctx.fillStyle = '#0a0a0a';

@@ -1041,6 +1041,104 @@ section('N2. Note off followed by note on (new voice)');
 }
 
 // ============================================================
+// LFO and modulation routing
+//
+// Three behaviours that the suite used to leave uncovered: breaking any of
+// them changed the rendered sound and every test still passed. Each test
+// below was checked by making the corresponding break and watching it fail.
+// ============================================================
+
+section('P1. Two modulators on one bus are summed, not overwritten');
+{
+  // DX7 algorithm 12 (index 11) puts OP5 and OP4 onto the same modulation bus.
+  // The first operator to write a bus sets it; the second must add to it. If
+  // the second overwrites instead, the first one's contribution vanishes and
+  // silencing it changes nothing.
+  const both = makePatch({ algorithm: 11 });
+  both.ops[0].outputLevel = 99;               // carrier
+  both.ops[1].outputLevel = 85;               // modulator A
+  both.ops[2].outputLevel = 85;               // modulator B
+  both.ops[1].freqCoarse = 2;
+  both.ops[2].freqCoarse = 3;
+
+  const oneOnly = JSON.parse(JSON.stringify(both));
+  oneOnly.ops[1].outputLevel = 0;             // drop modulator A
+
+  const sBoth = playNote(both, 60, 100, SR / 4);
+  const sOne  = playNote(oneOnly, 60, 100, SR / 4);
+
+  // With A dropped the timbre must change. Compare the sideband it generates.
+  const f0 = 261.63;
+  const sideBoth = dftMag(sBoth, f0 * 2, 2400);
+  const sideOne  = dftMag(sOne,  f0 * 2, 2400);
+  const ratio = sideOne > 0 ? sideBoth / sideOne : Infinity;
+
+  assert(Math.abs(ratio - 1) > 0.05,
+    `Dropping one of two modulators on a shared bus must change the sound ` +
+    `(sideband ratio ${ratio.toFixed(4)}, so the bus is being overwritten, not summed)`);
+  console.log(`  Shared bus sums: sideband ratio ${ratio.toFixed(3)} with vs without the second modulator ✓`);
+}
+
+section('P2. LFO amplitude modulation only ever attenuates');
+{
+  // On a DX7 amplitude modulation is an attenuation: the LFO can duck the
+  // operator but never push it above its own output level. A sign error here
+  // is audible as tremolo that swells where it should dip, and it shows up as
+  // a peak louder than the unmodulated patch.
+  const dry = makePatch({ algorithm: 31 });
+  dry.ops[0].outputLevel = 99;
+
+  const wet = JSON.parse(JSON.stringify(dry));
+  wet.lfoSpeed = 50;
+  wet.lfoAmpModDepth = 99;
+  wet.lfoSync = true;
+  wet.ops[0].ampModSens = 3;
+
+  const sDry = playNote(dry, 60, 100, SR / 2);
+  const sWet = playNote(wet, 60, 100, SR / 2);
+  const pDry = peak(sDry, 2400);
+  const pWet = peak(sWet, 2400);
+
+  assert(pWet <= pDry * 1.02,
+    `Amp mod must not make a voice louder than its unmodulated form ` +
+    `(dry ${pDry.toFixed(4)}, wet ${pWet.toFixed(4)})`);
+  assert(rms(sWet, 2400) < rms(sDry, 2400) * 0.98,
+    'Amp mod at full depth should audibly reduce the average level');
+  console.log(`  Amp mod attenuates: dry peak ${pDry.toFixed(4)}, wet peak ${pWet.toFixed(4)} ✓`);
+}
+
+section('P3. LFO pitch modulation actually moves the pitch');
+{
+  // Vibrato that quietly does nothing is the easiest failure to miss, because
+  // the patch still sounds correct in every other way.
+  const flat = makePatch({ algorithm: 31, pitchModSens: 7 });
+  flat.ops[0].outputLevel = 99;
+
+  const vib = JSON.parse(JSON.stringify(flat));
+  vib.lfoSpeed = 30;
+  vib.lfoPitchModDepth = 99;
+  vib.lfoSync = true;
+
+  const sFlat = playNote(flat, 60, 100, SR);
+  const sVib  = playNote(vib, 60, 100, SR);
+
+  // Measure the fundamental in two windows a good part of an LFO cycle apart.
+  const win = Math.floor(SR / 8);
+  const seg = (buf, from) => buf.slice(from, from + win);
+  const fFlatA = measureFreq(seg(sFlat, SR / 4), 0);
+  const fFlatB = measureFreq(seg(sFlat, SR / 2), 0);
+  const fVibA  = measureFreq(seg(sVib,  SR / 4), 0);
+  const fVibB  = measureFreq(seg(sVib,  SR / 2), 0);
+
+  const flatDrift = Math.abs(fFlatA - fFlatB);
+  const vibSwing  = Math.abs(fVibA - fVibB);
+
+  assert(flatDrift < 2, `A patch with no pitch mod should hold pitch (drifted ${flatDrift.toFixed(2)} Hz)`);
+  assert(vibSwing > 4, `Pitch mod at full depth must move the pitch (moved ${vibSwing.toFixed(2)} Hz)`);
+  console.log(`  Vibrato swings ${vibSwing.toFixed(1)} Hz where a flat patch drifts ${flatDrift.toFixed(1)} Hz ✓`);
+}
+
+// ============================================================
 // Summary
 // ============================================================
 console.log(`\n${'='.repeat(50)}`);

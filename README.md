@@ -1,6 +1,6 @@
 # OpenDX7
 
-**Version 1.1**
+**Version 1.2**
 
 A browser-based Yamaha DX7 FM synthesizer. No plugins, no installs — just open and play.
 
@@ -102,6 +102,11 @@ node test/e2e-test.js           # 28 end-to-end tests
 - Double-click knob reset now returns center-based knobs (detune, transpose, pitch EG levels, PB range) to their defaults instead of zero.
 - Mod wheel and aftertouch now add vibrato (LFO pitch depth) instead of statically detuning the note.
 - Removed the donation link from the README.
+
+#### Version 1.2
+- The bundled 32-patch bank is the only bank that ships, and it is original work. Version 1.0 removed Yamaha's ROM cartridge data, but a later change fetched the same cartridge at page load from two strangers' repositories, which put it back in all but name. One of those two URLs is now a 404, so the page was also one dead link away from silently changing what it sounds like. Load your own cartridge with **LOAD SYX**.
+- Fixed the visualizations coming up the wrong size on a cold load. Each canvas is laid out at `width: 100%` with `height: auto`, so its height came from its backing store while its backing store was sized from its height. A circular definition settles on whichever measurement happens first, and on an empty cache that measurement happened before the stylesheet applied: the algorithm diagram was drawn into a 4x4 buffer and stretched across 272 pixels, and nothing redrew it for the rest of the session. Each canvas now declares its aspect ratio in CSS, and a `ResizeObserver` redraws it when its box changes.
+- Added tests for three behaviours that were unguarded: modulation buses summing rather than overwriting (the version 1.0 fix, which nothing was protecting), amplitude modulation only ever attenuating, and pitch modulation actually moving the pitch. Each was verified by breaking the engine and watching the new test fail.
 
 #### Version 1.0
 - Fixed SysEx operator ordering — loaded .SYX banks were mirror-imaged relative to their algorithm roles (carriers became modulators), producing near-noise. Import/export now use msfa/Dexed operator order to match the engine.

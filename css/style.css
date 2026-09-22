@@ -147,7 +147,9 @@ body {
 .nav-btn:hover { background: #333; color: #fff; }
 
 #algo-canvas {
-  width: 100%; height: auto;
+  /* the ratio its markup declares (200x80); without this the box would be
+     sized from the backing store, which is sized from the box */
+  width: 100%; height: auto; aspect-ratio: 200 / 80;
   background: #0a0a0a;
   border: 1px solid #222;
   border-radius: 3px;
@@ -181,6 +183,8 @@ body {
   border-radius: 3px;
   margin-bottom: 4px;
 }
+#env-canvas       { aspect-ratio: 280 / 48; }
+#pitch-env-canvas { aspect-ratio: 240 / 50; }
 
 /* ── Operator layout ── */
 .op-layout {
@@ -287,7 +291,7 @@ body {
 
 /* ── Visualizer ── */
 #waveform-canvas {
-  width: 100%; height: auto;
+  width: 100%; height: auto; aspect-ratio: 220 / 50;
   background: #000;
   border: 1px solid #222;
   border-radius: 3px;

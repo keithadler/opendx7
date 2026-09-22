@@ -42,17 +42,13 @@ const ALGO_DEFS = [
   { carriers: [1,2,3,4,5,6], chains: [[1],[2],[3],[4],[5],[6]], fb: 6 },
 ];
 
-export function drawAlgorithm(canvas, algoIndex) {
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const w = rect.width || 200;
-  const h = rect.height || 80;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+import { fitCanvas } from './canvas-fit.js';
 
-  ctx.clearRect(0, 0, w, h);
+export function drawAlgorithm(canvas, algoIndex) {
+  const fit = fitCanvas(canvas);
+  if (!fit) return;                 // no box yet; the observer will call back
+  const { ctx, w, h } = fit;
+
   const algo = ALGO_DEFS[algoIndex];
   if (!algo) return;
 
